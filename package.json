@@ -1,0 +1,26 @@
+{
+  "name": "glitchgoal",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Multiplayer browser hockey with deterministic sim + rollback netcode",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "eslint . --ext .ts",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.16.0",
+    "@typescript-eslint/parser": "^7.16.0",
+    "eslint": "^8.57.0",
+    "playwright": "^1.61.1",
+    "typescript": "^5.5.3",
+    "vitest": "^2.0.0"
+  }
+}

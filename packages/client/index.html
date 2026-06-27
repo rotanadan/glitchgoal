@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GlitchGoal</title>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #0a0a12;
+        color: #cdd;
+        font-family: monospace;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+      }
+      #app canvas { image-rendering: pixelated; border: 2px solid #223; }
+      .hint { font-size: 12px; opacity: 0.7; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div class="hint">P1: WASD move · Space shoot &nbsp;|&nbsp; P2: Arrows move · Enter shoot</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
