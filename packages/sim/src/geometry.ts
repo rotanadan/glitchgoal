@@ -52,6 +52,17 @@ export const SKATER_SKATER_RESTITUTION: Fixed = fromFloat(0.3);
 /** Goal posts ring the puck off harder. */
 export const POST_RESTITUTION: Fixed = fromFloat(0.85);
 
+/**
+ * Goalies: a kinematic collider per net that tracks the puck's y within the
+ * mouth, blocking shots and body-blocking carriers. X is fixed (just in front of
+ * the goal line, in the crease); only the y moves, driven by deterministic AI.
+ */
+export const GOALIE_R: Fixed = fromInt(10);
+export const GOALIE_LEFT_X: Fixed = fromInt(60); // GOAL_LINE_LEFT + crease depth
+export const GOALIE_RIGHT_X: Fixed = fromInt(620); // GOAL_LINE_RIGHT - crease depth
+export const GOALIE_SPEED: Fixed = fromFloat(2.6); // max y move per tick
+export const GOALIE_RESTITUTION: Fixed = fromFloat(0.5);
+
 /** Skater acceleration per tick while a direction is held. */
 export const SKATER_ACCEL: Fixed = fromFloat(0.6);
 

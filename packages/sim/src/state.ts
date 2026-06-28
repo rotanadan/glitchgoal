@@ -43,6 +43,8 @@ export interface GameState {
   possessor: number;
   /** Frames a loose puck stays un-pickup-able (after a shot or a check). */
   puckFree: number;
+  /** Goalie y positions: [0] = left net (player 0's), [1] = right net. */
+  goalies: [Fixed, Fixed];
 }
 
 /** Reset positions/velocities to the faceoff arrangement. Mutates in place. */
@@ -70,6 +72,7 @@ export function resetPositions(s: GameState): void {
 
   s.possessor = -1;
   s.puckFree = 0;
+  s.goalies = [RINK_CY, RINK_CY];
 }
 
 /** Deterministic initial state for a given seed. */
@@ -86,6 +89,7 @@ export function initialState(seed: number): GameState {
     faceoff: 0,
     possessor: -1,
     puckFree: 0,
+    goalies: [RINK_CY, RINK_CY],
   };
   resetPositions(s);
   return s;
@@ -94,7 +98,7 @@ export function initialState(seed: number): GameState {
 /** Serialized layout sizes (in int32 words). */
 const SKATER_WORDS = 6; // x,y,vx,vy,fx,fy
 const BODY_WORDS = 4; // x,y,vx,vy
-const HEADER_WORDS = 7; // tick, rng.s, score0, score1, faceoff, possessor, puckFree
+const HEADER_WORDS = 9; // tick, rng.s, score0/1, faceoff, possessor, puckFree, goalie0/1
 const TOTAL_WORDS = HEADER_WORDS + 2 * SKATER_WORDS + BODY_WORDS;
 
 /** Serialize to a compact Int32Array snapshot (for rollback save/restore). */
@@ -108,6 +112,8 @@ export function serialize(s: GameState): Int32Array {
   out[i++] = s.faceoff;
   out[i++] = s.possessor;
   out[i++] = s.puckFree;
+  out[i++] = s.goalies[0];
+  out[i++] = s.goalies[1];
   for (const sk of s.skaters) {
     out[i++] = sk.x;
     out[i++] = sk.y;
@@ -132,6 +138,7 @@ export function deserialize(buf: Int32Array): GameState {
   const faceoff = buf[i++]!;
   const possessor = buf[i++]!;
   const puckFree = buf[i++]!;
+  const goalies: [Fixed, Fixed] = [buf[i++]! as Fixed, buf[i++]! as Fixed];
   const readSkater = (): Skater => ({
     x: buf[i++]! as Fixed,
     y: buf[i++]! as Fixed,
@@ -147,7 +154,7 @@ export function deserialize(buf: Int32Array): GameState {
     vx: buf[i++]! as Fixed,
     vy: buf[i++]! as Fixed,
   };
-  return { tick, rng: { s: rngS }, skaters, puck, score, faceoff, possessor, puckFree };
+  return { tick, rng: { s: rngS }, skaters, puck, score, faceoff, possessor, puckFree, goalies };
 }
 
 /**

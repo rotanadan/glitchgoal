@@ -1,4 +1,4 @@
-import { toFloat, type GameState, type Skater } from '@glitchgoal/sim';
+import { toFloat, GOALIE_LEFT_X, GOALIE_RIGHT_X, type GameState, type Skater } from '@glitchgoal/sim';
 import type { ViewState } from './renderer.js';
 
 const mover = (sk: Skater) => ({
@@ -15,5 +15,9 @@ export function view(s: GameState): ViewState {
     puck: { x: toFloat(s.puck.x), y: toFloat(s.puck.y) },
     score: [s.score[0], s.score[1]],
     possessor: s.possessor,
+    goalies: [
+      { x: toFloat(GOALIE_LEFT_X), y: toFloat(s.goalies[0]) },
+      { x: toFloat(GOALIE_RIGHT_X), y: toFloat(s.goalies[1]) },
+    ],
   };
 }

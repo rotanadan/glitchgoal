@@ -31,6 +31,7 @@ export interface ViewState {
   score: [number, number];
   /** Which skater carries the puck: -1, 0, or 1. */
   possessor: number;
+  goalies: [{ x: number; y: number }, { x: number; y: number }];
 }
 interface Mover {
   x: number;
@@ -74,6 +75,7 @@ export class Renderer {
   private readonly world = new Container();
   private readonly skaters: Container[] = [];
   private readonly possessionRings: Graphics[] = [];
+  private readonly goalieSprites: Graphics[] = [];
   private puck!: Graphics;
   private scoreText!: Text;
   private cameraX = 0;
@@ -92,6 +94,9 @@ export class Renderer {
     this.app.stage.addChild(this.world);
 
     this.drawRink();
+    // Goalies (behind skaters).
+    this.goalieSprites.push(this.makeGoalie(TEAM_COLORS[0]), this.makeGoalie(TEAM_COLORS[1]));
+    this.goalieSprites.forEach((g) => this.world.addChild(g));
     this.skaters.push(this.makeSkater(TEAM_COLORS[0]), this.makeSkater(TEAM_COLORS[1]));
     this.skaters.forEach((s) => this.world.addChild(s));
     this.puck = new Graphics().circle(0, 0, PK_R).fill(0x141414);
@@ -173,6 +178,15 @@ export class Renderer {
     g.circle(goalLineX, botY, POSTR).fill(postColor);
   }
 
+  /** A goalie: a vertical pad in team colors with a helmet. */
+  private makeGoalie(color: number): Graphics {
+    const g = new Graphics();
+    g.roundRect(-5, -13, 10, 26, 2).fill(color);
+    g.roundRect(-5, -13, 10, 26, 2).stroke({ width: 1, color: 0x10131a });
+    g.circle(0, 0, 3.5).fill(0xe8e8e8); // mask
+    return g;
+  }
+
   /** A chunky NES-style skater, drawn facing +x; rotated to its facing each frame. */
   private makeSkater(jersey: number): Container {
     const c = new Container();
@@ -208,6 +222,12 @@ export class Renderer {
       if (c.fx !== 0 || c.fy !== 0) sprite.rotation = Math.atan2(c.fy, c.fx);
       this.possessionRings[i]!.visible = curr.possessor === i;
     }
+    for (let i = 0; i < 2; i++) {
+      const gp = prev.goalies[i]!;
+      const gc = curr.goalies[i]!;
+      this.goalieSprites[i]!.position.set(gc.x, lerp(gp.y, gc.y, alpha));
+    }
+
     const puckX = lerp(prev.puck.x, curr.puck.x, alpha);
     const puckY = lerp(prev.puck.y, curr.puck.y, alpha);
     this.puck.position.set(puckX, puckY);

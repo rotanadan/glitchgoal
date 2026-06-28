@@ -9,7 +9,10 @@ import {
   RINK_H,
   SKATER_R,
   RINK_CY,
+  GOAL_LINE_LEFT,
   GOAL_LINE_RIGHT,
+  GOAL_HALF_H,
+  NET_DEPTH,
   type Fixed,
   type PlayerInput,
 } from '../src/index.js';
@@ -29,23 +32,80 @@ describe('rink physics', () => {
     expect(sk.y).toBeLessThanOrEqual(RINK_H);
   });
 
-  it('shooting the carried puck into the empty net scores', () => {
+  it('a shot to the open corner beats the goalie and scores', () => {
     let s = initialState(2);
-    // Player 0 carries the puck near the right goal, facing right.
+    // Player 0 carries near the right goal, aimed at the TOP corner...
+    s.possessor = 0;
+    s.puckFree = 0;
+    s.skaters[0].x = (GOAL_LINE_RIGHT - fromFloat(20)) as Fixed;
+    s.skaters[0].y = (RINK_CY - GOAL_HALF_H + fromFloat(8)) as Fixed;
+    s.skaters[0].fx = fromFloat(1) as Fixed;
+    s.skaters[0].fy = 0 as Fixed;
+    s.skaters[1].x = fromFloat(200) as Fixed;
+    // ...while the goalie is pinned to the BOTTOM and can't recover in time.
+    s.goalies[1] = (RINK_CY + GOAL_HALF_H) as Fixed;
+
+    const shoot: [PlayerInput, PlayerInput] = [Button.Action, NONE];
+    const before = s.score[0];
+    for (let i = 0; i < 30; i++) s = step(s, shoot);
+    expect(s.score[0]).toBe(before + 1);
+  });
+
+  it('carrying the puck into the net does not score — you must shoot it', () => {
+    let s = initialState(9);
+    // Carrier forced right inside the cage, holding the puck the whole time.
+    s.possessor = 0;
+    s.skaters[0].x = (GOAL_LINE_RIGHT + fromFloat(8)) as Fixed;
+    s.skaters[0].y = RINK_CY;
+    s.skaters[0].fx = fromFloat(1) as Fixed;
+    s.skaters[0].fy = 0 as Fixed;
+    s.skaters[1].x = fromFloat(200) as Fixed;
+
+    const before = s.score[0];
+    for (let i = 0; i < 20; i++) s = step(s, [NONE, NONE]); // carrying, never shooting
+    expect(s.score[0]).toBe(before); // a carried puck never scores
+  });
+
+  it('a puck behind or beside the net is not a goal', () => {
+    let s = initialState(8);
+    s.possessor = -1;
+    s.puckFree = 0;
+    s.skaters[0].x = fromFloat(300) as Fixed;
+    s.skaters[1].x = fromFloat(360) as Fixed;
+
+    // Directly behind the left net (past the back of the cage).
+    s.puck.x = (GOAL_LINE_LEFT - NET_DEPTH - fromFloat(4)) as Fixed;
+    s.puck.y = RINK_CY;
+    s.puck.vx = 0 as Fixed;
+    s.puck.vy = 0 as Fixed;
+    s = step(s, [NONE, NONE]);
+    expect(s.score[1]).toBe(0);
+
+    // Fired at the SIDE of the net from outside (above it, moving down): it must
+    // bounce off the side wall, not pass through into the goal.
+    s.puck.x = (GOAL_LINE_LEFT - fromFloat(8)) as Fixed;
+    s.puck.y = (RINK_CY - GOAL_HALF_H - fromFloat(6)) as Fixed;
+    s.puck.vx = 0 as Fixed;
+    s.puck.vy = fromFloat(3) as Fixed;
+    for (let i = 0; i < 20; i++) s = step(s, [NONE, NONE]);
+    expect(s.score[1]).toBe(0);
+  });
+
+  it('the goalie saves a shot fired straight at it', () => {
+    let s = initialState(4);
     s.possessor = 0;
     s.puckFree = 0;
     s.skaters[0].x = (GOAL_LINE_RIGHT - fromFloat(30)) as Fixed;
     s.skaters[0].y = RINK_CY;
     s.skaters[0].fx = fromFloat(1) as Fixed;
     s.skaters[0].fy = 0 as Fixed;
-    // Keep the defender far away so it's not a check.
     s.skaters[1].x = fromFloat(200) as Fixed;
-    s.skaters[1].y = RINK_CY;
+    s.goalies[1] = RINK_CY; // centered, in the puck's path
 
     const shoot: [PlayerInput, PlayerInput] = [Button.Action, NONE];
     const before = s.score[0];
-    for (let i = 0; i < 60; i++) s = step(s, shoot);
-    expect(s.score[0]).toBe(before + 1);
+    for (let i = 0; i < 30; i++) s = step(s, shoot);
+    expect(s.score[0]).toBe(before); // saved
   });
 
   it('picks up a loose puck, carries it on the stick, and a check knocks it loose', () => {

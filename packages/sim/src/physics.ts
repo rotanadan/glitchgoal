@@ -26,6 +26,7 @@ import {
   GOAL_HALF_H,
   GOAL_LINE_LEFT,
   GOAL_LINE_RIGHT,
+  NET_DEPTH,
   POST_R,
   POST_RESTITUTION,
   WALL_RESTITUTION,
@@ -126,9 +127,10 @@ export function bouncePuckOffBoards(b: Body, radius: Fixed): void {
 }
 
 /**
- * Resolve a circle against a single immovable post (only the body moves).
+ * Resolve a circle against a single immovable point-circle (post or goalie):
+ * only the moving body is pushed out and reflected.
  */
-function resolveCircleStatic(b: Body, radius: Fixed, px: Fixed, py: Fixed, postR: Fixed, restitution: Fixed): void {
+export function resolveCircleStatic(b: Body, radius: Fixed, px: Fixed, py: Fixed, postR: Fixed, restitution: Fixed): void {
   const dx = sub(b.x, px);
   const dy = sub(b.y, py);
   const distSq = add(mul(dx, dx), mul(dy, dy));
@@ -159,6 +161,57 @@ function resolveCircleStatic(b: Body, radius: Fixed, px: Fixed, py: Fixed, postR
   }
 }
 
+/** Solid vertical wall segment at x=wallX spanning [y0,y1] — bounce on either side. */
+function resolveVWall(b: Body, radius: Fixed, wallX: Fixed, y0: Fixed, y1: Fixed, rest: Fixed): void {
+  if (b.y < sub(y0, radius) || b.y > add(y1, radius)) return;
+  const dx = sub(b.x, wallX);
+  if (dx >= ZERO) {
+    if (dx < radius) {
+      b.x = add(wallX, radius);
+      if (b.vx < ZERO) b.vx = neg(mul(b.vx, rest));
+    }
+  } else if (neg(dx) < radius) {
+    b.x = sub(wallX, radius);
+    if (b.vx > ZERO) b.vx = neg(mul(b.vx, rest));
+  }
+}
+
+/** Solid horizontal wall segment at y=wallY spanning [x0,x1] — bounce on either side. */
+function resolveHWall(b: Body, radius: Fixed, wallY: Fixed, x0: Fixed, x1: Fixed, rest: Fixed): void {
+  if (b.x < sub(x0, radius) || b.x > add(x1, radius)) return;
+  const dy = sub(b.y, wallY);
+  if (dy >= ZERO) {
+    if (dy < radius) {
+      b.y = add(wallY, radius);
+      if (b.vy < ZERO) b.vy = neg(mul(b.vy, rest));
+    }
+  } else if (neg(dy) < radius) {
+    b.y = sub(wallY, radius);
+    if (b.vy > ZERO) b.vy = neg(mul(b.vy, rest));
+  }
+}
+
+/**
+ * Resolve a body against the solid parts of both nets: back wall + the two side
+ * walls. The front (the mouth between the posts) is open, so the only way into a
+ * net is from the front — you can't score through the side or back.
+ */
+export function resolveNetWalls(b: Body, radius: Fixed): void {
+  const topY = sub(RINK_CY, GOAL_HALF_H);
+  const botY = add(RINK_CY, GOAL_HALF_H);
+  const lBack = sub(GOAL_LINE_LEFT, NET_DEPTH);
+  const rBack = add(GOAL_LINE_RIGHT, NET_DEPTH);
+
+  // Left net.
+  resolveVWall(b, radius, lBack, topY, botY, WALL_RESTITUTION);
+  resolveHWall(b, radius, topY, lBack, GOAL_LINE_LEFT, WALL_RESTITUTION);
+  resolveHWall(b, radius, botY, lBack, GOAL_LINE_LEFT, WALL_RESTITUTION);
+  // Right net.
+  resolveVWall(b, radius, rBack, topY, botY, WALL_RESTITUTION);
+  resolveHWall(b, radius, topY, GOAL_LINE_RIGHT, rBack, WALL_RESTITUTION);
+  resolveHWall(b, radius, botY, GOAL_LINE_RIGHT, rBack, WALL_RESTITUTION);
+}
+
 /** Resolve a body against all four goal posts. */
 export function resolvePosts(b: Body, radius: Fixed): void {
   const topY = sub(RINK_CY, GOAL_HALF_H);
@@ -184,12 +237,14 @@ export function clampSpeed(b: Body, max: Fixed): void {
 }
 
 /**
- * Returns the index of the player who scored, or -1. The puck crossing the LEFT
- * goal line (between the posts) is a goal for player 1; the RIGHT line, player 0.
+ * Returns the index of the player who scored, or -1. A goal is the puck INSIDE a
+ * net cage — past the goal line but not past the back wall — and between the
+ * posts. Because the back/sides are solid, the cage is only reachable from the
+ * front, so this can't trigger from a puck beside or behind the net.
  */
 export function detectGoal(puck: Body): number {
   if (!inGoalMouth(puck.y)) return -1;
-  if (puck.x < GOAL_LINE_LEFT) return 1;
-  if (puck.x > GOAL_LINE_RIGHT) return 0;
+  if (puck.x < GOAL_LINE_LEFT && puck.x > sub(GOAL_LINE_LEFT, NET_DEPTH)) return 1;
+  if (puck.x > GOAL_LINE_RIGHT && puck.x < add(GOAL_LINE_RIGHT, NET_DEPTH)) return 0;
   return -1;
 }

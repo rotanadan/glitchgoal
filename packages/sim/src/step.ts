@@ -11,7 +11,7 @@
  * -> board bounces -> goal check -> faceoff bookkeeping.
  */
 
-import { add, mul, div, sqrt, type Fixed, ZERO, ONE } from './fixed.js';
+import { add, sub, neg, mul, div, sqrt, clamp, type Fixed, ZERO, ONE } from './fixed.js';
 import { hasButton, Button, type PlayerInput } from './input.js';
 import { nextU32 } from './rng.js';
 import { resetPositions, type Body, type Skater, type GameState } from './state.js';
@@ -20,6 +20,8 @@ import {
   clampSkaterToRink,
   bouncePuckOffBoards,
   resolvePosts,
+  resolveNetWalls,
+  resolveCircleStatic,
   clampSpeed,
   detectGoal,
 } from './physics.js';
@@ -42,6 +44,13 @@ import {
   FACEOFF_TICKS,
   MAX_SKATER_SPEED,
   MAX_PUCK_SPEED,
+  RINK_CY,
+  GOAL_HALF_H,
+  GOALIE_R,
+  GOALIE_LEFT_X,
+  GOALIE_RIGHT_X,
+  GOALIE_SPEED,
+  GOALIE_RESTITUTION,
 } from './geometry.js';
 
 /** Read the 8-direction d-pad into a raw direction vector (components -1/0/1). */
@@ -95,6 +104,32 @@ function integrate(b: Body, damping: Fixed): void {
   b.vy = mul(b.vy, damping);
   b.x = add(b.x, b.vx);
   b.y = add(b.y, b.vy);
+}
+
+/** Move `a` toward `b` by at most `maxStep`. */
+function stepToward(a: Fixed, b: Fixed, maxStep: Fixed): Fixed {
+  const d = sub(b, a);
+  if (d > maxStep) return add(a, maxStep);
+  if (d < neg(maxStep)) return sub(a, maxStep);
+  return b;
+}
+
+/**
+ * Update one goalie: deterministically track the puck's y within the mouth, then
+ * block the puck (if loose) and both skaters as an immovable collider.
+ */
+function updateGoalie(state: GameState, idx: 0 | 1, gx: Fixed): void {
+  const lo = sub(RINK_CY, GOAL_HALF_H);
+  const hi = add(RINK_CY, GOAL_HALF_H);
+  const target = clamp(state.puck.y, lo, hi);
+  const gy = stepToward(state.goalies[idx], target, GOALIE_SPEED);
+  state.goalies[idx] = gy;
+
+  resolveCircleStatic(state.skaters[0], SKATER_R, gx, gy, GOALIE_R, GOALIE_RESTITUTION);
+  resolveCircleStatic(state.skaters[1], SKATER_R, gx, gy, GOALIE_R, GOALIE_RESTITUTION);
+  if (state.possessor < 0) {
+    resolveCircleStatic(state.puck, PUCK_R, gx, gy, GOALIE_R, GOALIE_RESTITUTION);
+  }
 }
 
 /** Advance one fixed timestep. */
@@ -173,20 +208,28 @@ export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): Game
   // tracks the skater).
   clampSkaterToRink(sk0, SKATER_R);
   clampSkaterToRink(sk1, SKATER_R);
+  resolveNetWalls(sk0, SKATER_R);
+  resolveNetWalls(sk1, SKATER_R);
   resolvePosts(sk0, SKATER_R);
   resolvePosts(sk1, SKATER_R);
   if (state.possessor < 0) {
     bouncePuckOffBoards(puck, PUCK_R);
+    resolveNetWalls(puck, PUCK_R);
     resolvePosts(puck, PUCK_R);
   }
+
+  // Goalies track the puck and block shots / carriers.
+  updateGoalie(state, 0, GOALIE_LEFT_X);
+  updateGoalie(state, 1, GOALIE_RIGHT_X);
 
   // Cap speeds so collision resolution can't inject runaway energy.
   clampSpeed(sk0, MAX_SKATER_SPEED);
   clampSpeed(sk1, MAX_SKATER_SPEED);
   if (state.possessor < 0) clampSpeed(puck, MAX_PUCK_SPEED);
 
-  // Goal?
-  const scorer = detectGoal(puck);
+  // Goal? Only a LOOSE puck can score — you must shoot it in (past the goalie),
+  // not carry/walk it through the mouth or side.
+  const scorer = state.possessor < 0 ? detectGoal(puck) : -1;
   if (scorer === 0 || scorer === 1) {
     state.score[scorer]++;
     resetPositions(state);
