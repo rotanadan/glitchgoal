@@ -154,23 +154,18 @@ function nearestSlotToPuck(state: GameState, t: 0 | 1): number {
   return best;
 }
 
-/** Move `a` toward `b` by at most `maxStep`. */
-function stepToward(a: Fixed, b: Fixed, maxStep: Fixed): Fixed {
-  const d = sub(b, a);
-  if (d > maxStep) return add(a, maxStep);
-  if (d < neg(maxStep)) return sub(a, maxStep);
-  return b;
-}
-
 /**
- * Update one goalie: deterministically track the puck's y within the mouth, then
- * block the puck (if loose) and both skaters as an immovable collider.
+ * Update one goalie: the controlling team moves it up/down with Up/Down (it does
+ * NOT track the puck), clamped to the goal mouth. Then it blocks shots/skaters
+ * as an immovable collider.
  */
-function updateGoalie(state: GameState, idx: 0 | 1, gx: Fixed): void {
+function updateGoalie(state: GameState, idx: 0 | 1, gx: Fixed, input: PlayerInput): void {
   const lo = sub(RINK_CY, GOAL_HALF_H);
   const hi = add(RINK_CY, GOAL_HALF_H);
-  const target = clamp(state.puck.y, lo, hi);
-  const gy = stepToward(state.goalies[idx], target, GOALIE_SPEED);
+  let gy = state.goalies[idx];
+  if (hasButton(input, Button.Up)) gy = sub(gy, GOALIE_SPEED);
+  if (hasButton(input, Button.Down)) gy = add(gy, GOALIE_SPEED);
+  gy = clamp(gy, lo, hi);
   state.goalies[idx] = gy;
 
   for (const sk of state.skaters) {
@@ -307,9 +302,9 @@ export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): Game
     resolvePosts(puck, PUCK_R);
   }
 
-  // Goalies track the puck and block shots / carriers.
-  updateGoalie(state, 0, GOALIE_LEFT_X);
-  updateGoalie(state, 1, GOALIE_RIGHT_X);
+  // Goalies are moved up/down by their team's input (Up/Down); they block shots.
+  updateGoalie(state, 0, GOALIE_LEFT_X, inputs[0]);
+  updateGoalie(state, 1, GOALIE_RIGHT_X, inputs[1]);
 
   // Cap speeds so collision resolution can't inject runaway energy.
   for (let i = 0; i < n; i++) clampSpeed(skaters[i]!, MAX_SKATER_SPEED);
