@@ -14,15 +14,17 @@ type KeyMap = {
   left: string;
   right: string;
   action: string;
+  switch: string;
 };
 
-const PLAYER1: KeyMap = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', action: 'Space' };
+const PLAYER1: KeyMap = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', action: 'Space', switch: 'KeyE' };
 const PLAYER2: KeyMap = {
   up: 'ArrowUp',
   down: 'ArrowDown',
   left: 'ArrowLeft',
   right: 'ArrowRight',
   action: 'Enter',
+  switch: 'ShiftRight',
 };
 
 export class Keyboard {
@@ -44,6 +46,7 @@ export class Keyboard {
     if (this.down.has(map.left)) input |= Button.Left;
     if (this.down.has(map.right)) input |= Button.Right;
     if (this.down.has(map.action)) input |= Button.Action;
+    if (this.down.has(map.switch)) input |= Button.Switch;
     return input;
   }
 

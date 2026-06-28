@@ -113,7 +113,29 @@ export const FACEOFF_TICKS = 60;
 /** Goals needed to win a match. */
 export const WIN_GOALS = 5;
 
-/** Faceoff spawn positions (center ice). */
-export const SKATER0_SPAWN_X: Fixed = fromInt(270);
-export const SKATER1_SPAWN_X: Fixed = fromInt(410);
+/** Skaters per team (plus a goalie). 8 skaters total, NES Ice Hockey style. */
+export const SKATERS_PER_TEAM = 4;
+
+/** Puck faceoff spawn (center ice). */
 export const PUCK_SPAWN_X: Fixed = fromInt(340);
+
+/**
+ * Faceoff formation: 4 skaters per team. Indices 0-3 are team 0 (defends LEFT,
+ * attacks RIGHT) on the left half; 4-7 are team 1, mirrored. [x, y] in sim units.
+ */
+const FORMATION: ReadonlyArray<readonly [number, number]> = [
+  [280, 150], [210, 70], [210, 230], [140, 150], // team 0
+  [400, 150], [470, 70], [470, 230], [540, 150], // team 1
+];
+export const SPAWN_X: readonly Fixed[] = FORMATION.map(([x]) => fromInt(x));
+export const SPAWN_Y: readonly Fixed[] = FORMATION.map(([, y]) => fromInt(y));
+
+/**
+ * AI lane (home y) per team slot — spreads the four skaters vertically so they
+ * don't clump. AI seeks (puck.x, laneY[slot]) when not controlled.
+ */
+const LANES = [45, 115, 185, 255];
+export const LANE_Y: readonly Fixed[] = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => fromInt(LANES[i % 4]!));
+
+/** AI stops accelerating once within this distance of its target. */
+export const AI_DEADZONE: Fixed = fromInt(6);

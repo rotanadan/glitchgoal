@@ -21,16 +21,20 @@ import {
   POST_R,
   SKATER_R,
   PUCK_R,
+  SKATERS_PER_TEAM,
   toFloat,
 } from '@glitchgoal/sim';
 
 /** A render-friendly snapshot of the sim (floats, sim units). */
 export interface ViewState {
-  skaters: [Mover, Mover];
+  /** 8 skaters: 0-3 team 0, 4-7 team 1. */
+  skaters: Mover[];
   puck: { x: number; y: number };
   score: [number, number];
-  /** Which skater carries the puck: -1, 0, or 1. */
+  /** Which skater carries the puck: -1, or a global index 0-7. */
   possessor: number;
+  /** Team-slot (0-3) each team's human controls. */
+  controlled: [number, number];
   goalies: [{ x: number; y: number }, { x: number; y: number }];
 }
 interface Mover {
@@ -76,6 +80,7 @@ export class Renderer {
   private readonly skaters: Container[] = [];
   private readonly possessionRings: Graphics[] = [];
   private readonly goalieSprites: Graphics[] = [];
+  private readonly controlIndicators: Graphics[] = [];
   private puck!: Graphics;
   private scoreText!: Text;
   private cameraX = 0;
@@ -97,8 +102,15 @@ export class Renderer {
     // Goalies (behind skaters).
     this.goalieSprites.push(this.makeGoalie(TEAM_COLORS[0]), this.makeGoalie(TEAM_COLORS[1]));
     this.goalieSprites.forEach((g) => this.world.addChild(g));
-    this.skaters.push(this.makeSkater(TEAM_COLORS[0]), this.makeSkater(TEAM_COLORS[1]));
-    this.skaters.forEach((s) => this.world.addChild(s));
+    // 8 skaters: 0-3 team 0, 4-7 team 1.
+    for (let i = 0; i < SKATERS_PER_TEAM * 2; i++) {
+      const c = this.makeSkater(i < SKATERS_PER_TEAM ? TEAM_COLORS[0] : TEAM_COLORS[1]);
+      this.skaters.push(c);
+      this.world.addChild(c);
+    }
+    // Control indicators (one per team), shown above the human-controlled skater.
+    this.controlIndicators.push(this.makeChevron(TEAM_COLORS[0]), this.makeChevron(TEAM_COLORS[1]));
+    this.controlIndicators.forEach((c) => this.world.addChild(c));
     this.puck = new Graphics().circle(0, 0, PK_R).fill(0x141414);
     this.world.addChild(this.puck);
 
@@ -178,6 +190,14 @@ export class Renderer {
     g.circle(goalLineX, botY, POSTR).fill(postColor);
   }
 
+  /** A small downward chevron marking the human-controlled skater. */
+  private makeChevron(color: number): Graphics {
+    const g = new Graphics();
+    g.poly([-4, -SK_R - 8, 4, -SK_R - 8, 0, -SK_R - 3]).fill(color);
+    g.poly([-4, -SK_R - 8, 4, -SK_R - 8, 0, -SK_R - 3]).stroke({ width: 1, color: 0x10131a });
+    return g;
+  }
+
   /** A goalie: a vertical pad in team colors with a helmet. */
   private makeGoalie(color: number): Graphics {
     const g = new Graphics();
@@ -214,13 +234,24 @@ export class Renderer {
 
   /** Render one frame, interpolating between two sim states. */
   render(prev: ViewState, curr: ViewState, alpha: number): void {
-    for (let i = 0; i < 2; i++) {
+    const sx: number[] = [];
+    const sy: number[] = [];
+    for (let i = 0; i < this.skaters.length; i++) {
       const p = prev.skaters[i]!;
       const c = curr.skaters[i]!;
+      const x = lerp(p.x, c.x, alpha);
+      const y = lerp(p.y, c.y, alpha);
+      sx[i] = x;
+      sy[i] = y;
       const sprite = this.skaters[i]!;
-      sprite.position.set(lerp(p.x, c.x, alpha), lerp(p.y, c.y, alpha));
+      sprite.position.set(x, y);
       if (c.fx !== 0 || c.fy !== 0) sprite.rotation = Math.atan2(c.fy, c.fx);
       this.possessionRings[i]!.visible = curr.possessor === i;
+    }
+    // Control indicators above each team's controlled skater.
+    for (let t = 0; t < 2; t++) {
+      const idx = t * SKATERS_PER_TEAM + curr.controlled[t]!;
+      this.controlIndicators[t]!.position.set(sx[idx]!, sy[idx]!);
     }
     for (let i = 0; i < 2; i++) {
       const gp = prev.goalies[i]!;

@@ -14,7 +14,7 @@
 import { add, sub, neg, mul, div, sqrt, clamp, fromInt, type Fixed, ZERO, ONE } from './fixed.js';
 import { hasButton, Button, type PlayerInput } from './input.js';
 import { nextU32 } from './rng.js';
-import { resetPositions, type Body, type Skater, type GameState } from './state.js';
+import { resetPositions, teamOf, type Body, type Skater, type GameState } from './state.js';
 import {
   resolveCircleCircle,
   clampSkaterToRink,
@@ -54,6 +54,9 @@ import {
   GOALIE_RIGHT_X,
   GOALIE_SPEED,
   GOALIE_RESTITUTION,
+  SKATERS_PER_TEAM,
+  LANE_Y,
+  AI_DEADZONE,
 } from './geometry.js';
 
 /** Read the 8-direction d-pad into a raw direction vector (components -1/0/1). */
@@ -114,14 +117,41 @@ function integrate(b: Body, damping: Fixed): void {
  * with accuracy-based random spread. The spread is deterministic (sim RNG), so
  * both peers compute the identical shot.
  */
-function shotDirection(state: GameState, carrier: Skater, possessor: 0 | 1): { nx: Fixed; ny: Fixed } {
-  const targetX = possessor === 0 ? GOAL_LINE_RIGHT : GOAL_LINE_LEFT;
+function shotDirection(state: GameState, carrier: Skater, team: 0 | 1): { nx: Fixed; ny: Fixed } {
+  const targetX = team === 0 ? GOAL_LINE_RIGHT : GOAL_LINE_LEFT;
   const aim = normalize(sub(targetX, carrier.x), sub(RINK_CY, carrier.y));
   const maxErr = mul(SHOT_SPREAD, sub(ONE, carrier.accuracy));
   const r = (nextU32(state.rng) % 2001) - 1000; // -1000..1000
   const err = mul(div(fromInt(r), fromInt(1000)), maxErr); // [-maxErr, maxErr]
   // Deflect along the perpendicular (-ny, nx) and renormalize.
   return normalize(add(aim.nx, mul(neg(aim.ny), err)), add(aim.ny, mul(aim.nx, err)));
+}
+
+/** Accelerate an AI skater toward a target point and face that way. */
+function moveToward(sk: Skater, tx: Fixed, ty: Fixed): void {
+  const dx = sub(tx, sk.x);
+  const dy = sub(ty, sk.y);
+  if (add(mul(dx, dx), mul(dy, dy)) <= mul(AI_DEADZONE, AI_DEADZONE)) return;
+  const { nx, ny } = normalize(dx, dy);
+  sk.vx = add(sk.vx, mul(nx, SKATER_ACCEL));
+  sk.vy = add(sk.vy, mul(ny, SKATER_ACCEL));
+  sk.fx = nx;
+  sk.fy = ny;
+}
+
+/** The team-slot (0-3) of the team `t` skater nearest the puck. */
+function nearestSlotToPuck(state: GameState, t: 0 | 1): number {
+  const base = t * SKATERS_PER_TEAM;
+  let best = 0;
+  let bestD = distSq(state.skaters[base]!, state.puck);
+  for (let s = 1; s < SKATERS_PER_TEAM; s++) {
+    const d = distSq(state.skaters[base + s]!, state.puck);
+    if (d < bestD) {
+      bestD = d;
+      best = s;
+    }
+  }
+  return best;
 }
 
 /** Move `a` toward `b` by at most `maxStep`. */
@@ -143,17 +173,24 @@ function updateGoalie(state: GameState, idx: 0 | 1, gx: Fixed): void {
   const gy = stepToward(state.goalies[idx], target, GOALIE_SPEED);
   state.goalies[idx] = gy;
 
-  resolveCircleStatic(state.skaters[0], SKATER_R, gx, gy, GOALIE_R, GOALIE_RESTITUTION);
-  resolveCircleStatic(state.skaters[1], SKATER_R, gx, gy, GOALIE_R, GOALIE_RESTITUTION);
+  for (const sk of state.skaters) {
+    resolveCircleStatic(sk, SKATER_R, gx, gy, GOALIE_R, GOALIE_RESTITUTION);
+  }
   if (state.possessor < 0) {
     resolveCircleStatic(state.puck, PUCK_R, gx, gy, GOALIE_R, GOALIE_RESTITUTION);
   }
 }
 
+/** The global index of the skater team `t`'s human currently controls. */
+function controlledIndex(state: GameState, t: 0 | 1): number {
+  return t * SKATERS_PER_TEAM + state.controlled[t];
+}
+
 /** Advance one fixed timestep. */
 export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): GameState {
-  const [sk0, sk1] = state.skaters;
+  const skaters = state.skaters;
   const puck = state.puck;
+  const n = skaters.length;
 
   // Always advance the RNG once per tick so its stream stays frame-aligned,
   // even during a faceoff freeze.
@@ -165,32 +202,57 @@ export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): Game
     return state;
   }
 
-  // Inputs: steering (facing).
-  applyInput(sk0, inputs[0]);
-  applyInput(sk1, inputs[1]);
+  // Switch button (edge-triggered): take control of the teammate nearest the puck.
+  for (const t of [0, 1] as const) {
+    if (hasButton(inputs[t], Button.Switch)) {
+      if (state.switchLatch[t] === 0) {
+        state.switchLatch[t] = 1;
+        state.controlled[t] = nearestSlotToPuck(state, t);
+      }
+    } else {
+      state.switchLatch[t] = 0;
+    }
+  }
+
+  // Human input drives each team's controlled skater; AI drives the rest.
+  const ctrl0 = controlledIndex(state, 0);
+  const ctrl1 = controlledIndex(state, 1);
+  applyInput(skaters[ctrl0]!, inputs[0]);
+  applyInput(skaters[ctrl1]!, inputs[1]);
+  for (let i = 0; i < n; i++) {
+    if (i === ctrl0 || i === ctrl1) continue;
+    moveToward(skaters[i]!, puck.x, LANE_Y[i]!);
+  }
 
   // Integrate skaters.
-  integrate(sk0, SKATER_DAMPING);
-  integrate(sk1, SKATER_DAMPING);
+  for (let i = 0; i < n; i++) integrate(skaters[i]!, SKATER_DAMPING);
 
   // Puck possession.
-  if (state.possessor === 0 || state.possessor === 1) {
-    const carrier = state.skaters[state.possessor];
-    const oppIdx = state.possessor === 0 ? 1 : 0;
-    const opponent = state.skaters[oppIdx];
-    const stealR = STEAL_RADIUS;
+  if (state.possessor >= 0) {
+    const carrier = skaters[state.possessor]!;
+    const carrierTeam = teamOf(state.possessor);
+    // You always control the puck carrier on your team (NES style).
+    state.controlled[carrierTeam] = state.possessor - carrierTeam * SKATERS_PER_TEAM;
 
-    if (distSq(carrier, opponent) <= mul(stealR, stealR)) {
-      // Checked: the puck is knocked loose, keeping the carrier's momentum.
+    // A check by any opponent within range knocks the puck loose.
+    let checked = false;
+    const stealSq = mul(STEAL_RADIUS, STEAL_RADIUS);
+    for (let i = 0; i < n; i++) {
+      if (teamOf(i) !== carrierTeam && distSq(carrier, skaters[i]!) <= stealSq) {
+        checked = true;
+        break;
+      }
+    }
+
+    if (checked) {
       puck.x = carrier.x;
       puck.y = carrier.y;
       puck.vx = carrier.vx;
       puck.vy = carrier.vy;
       state.possessor = -1;
       state.puckFree = KNOCK_DELAY;
-    } else if (hasButton(inputs[state.possessor], Button.Action)) {
-      // Shoot at the opponent's net, with accuracy-based spread.
-      const dir = shotDirection(state, carrier, state.possessor);
+    } else if (hasButton(inputs[carrierTeam], Button.Action)) {
+      const dir = shotDirection(state, carrier, carrierTeam);
       puck.x = add(carrier.x, mul(dir.nx, POSSESSION_OFFSET));
       puck.y = add(carrier.y, mul(dir.ny, POSSESSION_OFFSET));
       puck.vx = mul(dir.nx, SHOT_SPEED);
@@ -198,39 +260,47 @@ export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): Game
       state.possessor = -1;
       state.puckFree = PICKUP_DELAY;
     } else {
-      // Keep carrying.
       carryPuck(carrier, puck);
     }
   } else {
-    // Loose puck: free physics, then maybe picked up.
+    // Loose puck: free physics, then maybe picked up by the nearest skater.
     integrate(puck, PUCK_DAMPING);
     if (state.puckFree > 0) state.puckFree--;
-    resolveCircleCircle(sk0, puck, SKATER_R, PUCK_R, SKATER_INV_MASS, PUCK_INV_MASS, PUCK_SKATER_RESTITUTION);
-    resolveCircleCircle(sk1, puck, SKATER_R, PUCK_R, SKATER_INV_MASS, PUCK_INV_MASS, PUCK_SKATER_RESTITUTION);
-
+    for (let i = 0; i < n; i++) {
+      resolveCircleCircle(skaters[i]!, puck, SKATER_R, PUCK_R, SKATER_INV_MASS, PUCK_INV_MASS, PUCK_SKATER_RESTITUTION);
+    }
     if (state.puckFree === 0) {
       const r2 = mul(PICKUP_RADIUS, PICKUP_RADIUS);
-      const d0 = distSq(sk0, puck);
-      const d1 = distSq(sk1, puck);
-      const in0 = d0 <= r2;
-      const in1 = d1 <= r2;
-      if (in0 && in1) state.possessor = d0 <= d1 ? 0 : 1; // closer wins, tie -> p0
-      else if (in0) state.possessor = 0;
-      else if (in1) state.possessor = 1;
+      let best = -1;
+      let bestD = ZERO;
+      for (let i = 0; i < n; i++) {
+        const d = distSq(skaters[i]!, puck);
+        if (d <= r2 && (best < 0 || d < bestD)) {
+          best = i;
+          bestD = d;
+        }
+      }
+      if (best >= 0) {
+        state.possessor = best;
+        const t = teamOf(best);
+        state.controlled[t] = best - t * SKATERS_PER_TEAM;
+      }
     }
   }
 
-  // Skater-skater collision (always).
-  resolveCircleCircle(sk0, sk1, SKATER_R, SKATER_R, SKATER_INV_MASS, SKATER_INV_MASS, SKATER_SKATER_RESTITUTION);
+  // Skater-skater collisions (all pairs, deterministic order).
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      resolveCircleCircle(skaters[i]!, skaters[j]!, SKATER_R, SKATER_R, SKATER_INV_MASS, SKATER_INV_MASS, SKATER_SKATER_RESTITUTION);
+    }
+  }
 
-  // Boards + goal posts (skaters always; the puck only when loose — carried it
-  // tracks the skater).
-  clampSkaterToRink(sk0, SKATER_R);
-  clampSkaterToRink(sk1, SKATER_R);
-  resolveNetWalls(sk0, SKATER_R);
-  resolveNetWalls(sk1, SKATER_R);
-  resolvePosts(sk0, SKATER_R);
-  resolvePosts(sk1, SKATER_R);
+  // Boards + net walls + goal posts.
+  for (let i = 0; i < n; i++) {
+    clampSkaterToRink(skaters[i]!, SKATER_R);
+    resolveNetWalls(skaters[i]!, SKATER_R);
+    resolvePosts(skaters[i]!, SKATER_R);
+  }
   if (state.possessor < 0) {
     bouncePuckOffBoards(puck, PUCK_R);
     resolveNetWalls(puck, PUCK_R);
@@ -242,12 +312,10 @@ export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): Game
   updateGoalie(state, 1, GOALIE_RIGHT_X);
 
   // Cap speeds so collision resolution can't inject runaway energy.
-  clampSpeed(sk0, MAX_SKATER_SPEED);
-  clampSpeed(sk1, MAX_SKATER_SPEED);
+  for (let i = 0; i < n; i++) clampSpeed(skaters[i]!, MAX_SKATER_SPEED);
   if (state.possessor < 0) clampSpeed(puck, MAX_PUCK_SPEED);
 
-  // Goal? Only a LOOSE puck can score — you must shoot it in (past the goalie),
-  // not carry/walk it through the mouth or side.
+  // Goal? Only a LOOSE puck can score — you must shoot it in past the goalie.
   const scorer = state.possessor < 0 ? detectGoal(puck) : -1;
   if (scorer === 0 || scorer === 1) {
     state.score[scorer]++;

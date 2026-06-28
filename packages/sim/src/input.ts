@@ -13,6 +13,7 @@ export enum Button {
   Right = 1 << 3,
   Action = 1 << 4, // shoot / pass
   Boost = 1 << 5,
+  Switch = 1 << 6, // change which skater you control
 }
 
 /** One player's input for one frame, encoded as a single byte. */

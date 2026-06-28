@@ -123,26 +123,24 @@ describe('rink physics', () => {
 
   it('picks up a loose puck, carries it on the stick, and a check knocks it loose', () => {
     let s = initialState(5);
-    // Loose puck right next to player 0; defender far away.
+    // Loose puck right next to team-0 skater 0, off in a corner away from others.
     s.possessor = -1;
     s.puckFree = 0;
     s.skaters[0].x = fromFloat(100) as Fixed;
-    s.skaters[0].y = RINK_CY;
+    s.skaters[0].y = fromFloat(60) as Fixed;
     s.skaters[0].fx = fromFloat(1) as Fixed;
     s.skaters[0].fy = 0 as Fixed;
     s.puck.x = fromFloat(108) as Fixed;
-    s.puck.y = RINK_CY;
+    s.puck.y = fromFloat(60) as Fixed;
     s.puck.vx = 0 as Fixed;
     s.puck.vy = 0 as Fixed;
-    s.skaters[1].x = fromFloat(280) as Fixed;
-    s.skaters[1].y = RINK_CY;
 
-    // Picks it up.
+    // Picks it up (it's the nearest skater).
     s = step(s, [NONE, NONE]);
     expect(s.possessor).toBe(0);
 
     // Carries it: the puck stays glued near the skater.
-    for (let i = 0; i < 10; i++) s = step(s, [Button.Up, NONE]);
+    for (let i = 0; i < 8; i++) s = step(s, [Button.Up, NONE]);
     expect(s.possessor).toBe(0);
     const d = Math.hypot(
       toFloat(s.puck.x) - toFloat(s.skaters[0].x),
@@ -150,9 +148,9 @@ describe('rink physics', () => {
     );
     expect(d).toBeLessThan(20);
 
-    // Defender skates into the carrier -> puck knocked loose.
-    s.skaters[1].x = s.skaters[0].x;
-    s.skaters[1].y = s.skaters[0].y;
+    // An OPPONENT (team 1) skates into the carrier -> puck knocked loose.
+    s.skaters[4].x = s.skaters[0].x;
+    s.skaters[4].y = s.skaters[0].y;
     s = step(s, [NONE, NONE]);
     expect(s.possessor).toBe(-1);
   });
@@ -167,7 +165,7 @@ describe('rink physics', () => {
     ];
     for (let i = 0; i < 3000; i++) {
       s = step(s, squeeze);
-      for (const b of [s.skaters[0], s.skaters[1], s.puck]) {
+      for (const b of [...s.skaters, s.puck]) {
         const sp = Math.hypot(toFloat(b.vx), toFloat(b.vy));
         const x = toFloat(b.x);
         const y = toFloat(b.y);
@@ -178,6 +176,20 @@ describe('rink physics', () => {
         expect(y).toBeLessThan(toFloat(RINK_H) + 50);
       }
     }
+  });
+
+  it('the switch button takes control of the teammate nearest the puck', () => {
+    let s = initialState(11);
+    s.possessor = -1;
+    s.controlled[0] = 3; // currently controlling some other slot
+    // Put the puck next to team-0 slot 1, far from the others.
+    s.puck.x = fromFloat(250) as Fixed;
+    s.puck.y = fromFloat(40) as Fixed;
+    s.skaters[1].x = fromFloat(252) as Fixed;
+    s.skaters[1].y = fromFloat(40) as Fixed;
+
+    s = step(s, [Button.Switch, NONE]);
+    expect(s.controlled[0]).toBe(1); // now controlling the skater by the puck
   });
 
   it('freezes play during the faceoff window after a goal', () => {
