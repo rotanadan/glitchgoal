@@ -19,6 +19,7 @@ import {
   resolveCircleCircle,
   clampSkaterToRink,
   bouncePuckOffBoards,
+  clampSpeed,
   detectGoal,
 } from './physics.js';
 import {
@@ -32,9 +33,14 @@ import {
   SKATER_DAMPING,
   PUCK_DAMPING,
   SHOT_SPEED,
-  SHOT_REACH,
-  SHOT_COOLDOWN,
+  POSSESSION_OFFSET,
+  PICKUP_RADIUS,
+  STEAL_RADIUS,
+  PICKUP_DELAY,
+  KNOCK_DELAY,
   FACEOFF_TICKS,
+  MAX_SKATER_SPEED,
+  MAX_PUCK_SPEED,
 } from './geometry.js';
 
 /** Read the 8-direction d-pad into a raw direction vector (components -1/0/1). */
@@ -75,17 +81,12 @@ function distSq(a: Body, b: Body): Fixed {
   return add(mul(dx as Fixed, dx as Fixed), mul(dy as Fixed, dy as Fixed));
 }
 
-function tryShoot(sk: Skater, puck: Body): void {
-  if (sk.cooldown > 0) {
-    sk.cooldown--;
-    return;
-  }
-  const reach = add(add(SKATER_R, PUCK_R), SHOT_REACH);
-  if (distSq(sk, puck) <= mul(reach, reach)) {
-    puck.vx = mul(sk.fx, SHOT_SPEED);
-    puck.vy = mul(sk.fy, SHOT_SPEED);
-    sk.cooldown = SHOT_COOLDOWN;
-  }
+/** Glue the carried puck to the front of its carrier (on the stick). */
+function carryPuck(carrier: Skater, puck: Body): void {
+  puck.x = add(carrier.x, mul(carrier.fx, POSSESSION_OFFSET));
+  puck.y = add(carrier.y, mul(carrier.fy, POSSESSION_OFFSET));
+  puck.vx = carrier.vx;
+  puck.vy = carrier.vy;
 }
 
 function integrate(b: Body, damping: Fixed): void {
@@ -110,28 +111,72 @@ export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): Game
     return state;
   }
 
-  // Inputs: steering + shooting.
+  // Inputs: steering (facing).
   applyInput(sk0, inputs[0]);
   applyInput(sk1, inputs[1]);
-  if (hasButton(inputs[0], Button.Action)) tryShoot(sk0, puck);
-  else if (sk0.cooldown > 0) sk0.cooldown--;
-  if (hasButton(inputs[1], Button.Action)) tryShoot(sk1, puck);
-  else if (sk1.cooldown > 0) sk1.cooldown--;
 
-  // Integrate.
+  // Integrate skaters.
   integrate(sk0, SKATER_DAMPING);
   integrate(sk1, SKATER_DAMPING);
-  integrate(puck, PUCK_DAMPING);
 
-  // Collisions (fixed, deterministic order).
+  // Puck possession.
+  if (state.possessor === 0 || state.possessor === 1) {
+    const carrier = state.skaters[state.possessor];
+    const oppIdx = state.possessor === 0 ? 1 : 0;
+    const opponent = state.skaters[oppIdx];
+    const stealR = STEAL_RADIUS;
+
+    if (distSq(carrier, opponent) <= mul(stealR, stealR)) {
+      // Checked: the puck is knocked loose, keeping the carrier's momentum.
+      puck.x = carrier.x;
+      puck.y = carrier.y;
+      puck.vx = carrier.vx;
+      puck.vy = carrier.vy;
+      state.possessor = -1;
+      state.puckFree = KNOCK_DELAY;
+    } else if (hasButton(inputs[state.possessor], Button.Action)) {
+      // Shoot in the carrier's facing direction.
+      puck.x = add(carrier.x, mul(carrier.fx, POSSESSION_OFFSET));
+      puck.y = add(carrier.y, mul(carrier.fy, POSSESSION_OFFSET));
+      puck.vx = mul(carrier.fx, SHOT_SPEED);
+      puck.vy = mul(carrier.fy, SHOT_SPEED);
+      state.possessor = -1;
+      state.puckFree = PICKUP_DELAY;
+    } else {
+      // Keep carrying.
+      carryPuck(carrier, puck);
+    }
+  } else {
+    // Loose puck: free physics, then maybe picked up.
+    integrate(puck, PUCK_DAMPING);
+    if (state.puckFree > 0) state.puckFree--;
+    resolveCircleCircle(sk0, puck, SKATER_R, PUCK_R, SKATER_INV_MASS, PUCK_INV_MASS, PUCK_SKATER_RESTITUTION);
+    resolveCircleCircle(sk1, puck, SKATER_R, PUCK_R, SKATER_INV_MASS, PUCK_INV_MASS, PUCK_SKATER_RESTITUTION);
+
+    if (state.puckFree === 0) {
+      const r2 = mul(PICKUP_RADIUS, PICKUP_RADIUS);
+      const d0 = distSq(sk0, puck);
+      const d1 = distSq(sk1, puck);
+      const in0 = d0 <= r2;
+      const in1 = d1 <= r2;
+      if (in0 && in1) state.possessor = d0 <= d1 ? 0 : 1; // closer wins, tie -> p0
+      else if (in0) state.possessor = 0;
+      else if (in1) state.possessor = 1;
+    }
+  }
+
+  // Skater-skater collision (always).
   resolveCircleCircle(sk0, sk1, SKATER_R, SKATER_R, SKATER_INV_MASS, SKATER_INV_MASS, SKATER_SKATER_RESTITUTION);
-  resolveCircleCircle(sk0, puck, SKATER_R, PUCK_R, SKATER_INV_MASS, PUCK_INV_MASS, PUCK_SKATER_RESTITUTION);
-  resolveCircleCircle(sk1, puck, SKATER_R, PUCK_R, SKATER_INV_MASS, PUCK_INV_MASS, PUCK_SKATER_RESTITUTION);
 
-  // Boards.
+  // Boards (skaters always; the puck only when loose — carried it tracks the skater).
   clampSkaterToRink(sk0, SKATER_R);
   clampSkaterToRink(sk1, SKATER_R);
-  bouncePuckOffBoards(puck, PUCK_R);
+  if (state.possessor < 0) bouncePuckOffBoards(puck, PUCK_R);
+
+  // Cap speeds so collision resolution can't inject runaway energy.
+  clampSpeed(sk0, MAX_SKATER_SPEED);
+  clampSpeed(sk1, MAX_SKATER_SPEED);
+  if (state.possessor < 0) clampSpeed(puck, MAX_PUCK_SPEED);
 
   // Goal?
   const scorer = detectGoal(puck);

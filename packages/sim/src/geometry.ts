@@ -42,12 +42,31 @@ export const SKATER_ACCEL: Fixed = fromFloat(0.6);
 export const SKATER_DAMPING: Fixed = fromFloat(0.90);
 export const PUCK_DAMPING: Fixed = fromFloat(0.985);
 
+/**
+ * Hard per-frame speed caps. Without these, the light puck squeezed between two
+ * skaters gains energy through sequential collision resolution and eventually
+ * explodes. The caps bound that feedback loop deterministically.
+ */
+export const MAX_SKATER_SPEED: Fixed = fromFloat(9.0);
+export const MAX_PUCK_SPEED: Fixed = fromFloat(14.0);
+
 /** Shooting. */
 export const SHOT_SPEED: Fixed = fromFloat(7.0);
-/** Extra reach beyond touching radius within which a skater can shoot. */
-export const SHOT_REACH: Fixed = fromInt(6);
-/** Ticks before a skater can shoot again. */
-export const SHOT_COOLDOWN = 20;
+
+/**
+ * Puck possession (arcade hockey: the puck rides on the carrier's stick until
+ * they shoot it or it's knocked loose by a check).
+ */
+/** Distance the carried puck sits ahead of the skater (its leading edge). */
+export const POSSESSION_OFFSET: Fixed = fromInt(14); // SKATER_R + PUCK_R
+/** A loose puck within this range of a skater is picked up. */
+export const PICKUP_RADIUS: Fixed = fromInt(18);
+/** When the non-carrier gets this close to the carrier, the puck is knocked loose. */
+export const STEAL_RADIUS: Fixed = fromInt(22);
+/** Frames a shot puck stays "live" (un-pickup-able) so it can travel. */
+export const PICKUP_DELAY = 12;
+/** Frames a knocked-loose puck stays live before it can be re-grabbed. */
+export const KNOCK_DELAY = 8;
 
 /** Faceoff freeze duration (ticks) after a goal. */
 export const FACEOFF_TICKS = 60;

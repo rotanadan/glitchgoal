@@ -42,16 +42,22 @@ export function toInt(a: Fixed): number {
   return a >> SHIFT;
 }
 
+// NOTE: these do NOT truncate to 32 bits. A Q16.16 value only fits ~±32768 in
+// 32 bits, but intermediate quantities (notably squared distances/speeds, dx*dx)
+// exceed that. JS numbers are exact integers up to 2^53 — comfortably beyond any
+// magnitude this sim produces — and exact integer math is identical on every
+// machine, so determinism holds. (Truncating here previously wrapped distSq to
+// garbage, causing phantom collisions and runaway energy.)
 export function add(a: Fixed, b: Fixed): Fixed {
-  return ((a + b) | 0) as Fixed;
+  return (a + b) as Fixed;
 }
 
 export function sub(a: Fixed, b: Fixed): Fixed {
-  return ((a - b) | 0) as Fixed;
+  return (a - b) as Fixed;
 }
 
 export function neg(a: Fixed): Fixed {
-  return (-a | 0) as Fixed;
+  return -a as Fixed;
 }
 
 /**

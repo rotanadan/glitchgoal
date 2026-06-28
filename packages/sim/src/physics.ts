@@ -144,6 +144,20 @@ export function bouncePuckOffBoards(b: Body, radius: Fixed): void {
 }
 
 /**
+ * Clamp a body's speed to `max` (fixed-point). Bounds the energy that the
+ * collision resolver can inject when bodies are squeezed together, preventing
+ * the simulation from blowing up.
+ */
+export function clampSpeed(b: Body, max: Fixed): void {
+  const speedSq = add(mul(b.vx, b.vx), mul(b.vy, b.vy));
+  if (speedSq <= mul(max, max)) return;
+  const speed = sqrt(speedSq);
+  const scale = div(max, speed);
+  b.vx = mul(b.vx, scale);
+  b.vy = mul(b.vy, scale);
+}
+
+/**
  * Returns the index of the player who scored, or -1. The puck fully crossing
  * the LEFT goal line is a goal for player 1; crossing the RIGHT line is a goal
  * for player 0.

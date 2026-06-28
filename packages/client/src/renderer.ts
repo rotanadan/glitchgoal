@@ -16,6 +16,8 @@ export interface ViewState {
   skaters: [Mover, Mover];
   puck: { x: number; y: number };
   score: [number, number];
+  /** Which skater carries the puck: -1, 0, or 1. */
+  possessor: number;
 }
 interface Mover {
   x: number;
@@ -42,6 +44,7 @@ export class Renderer {
   readonly app = new Application();
   private readonly world = new Container();
   private readonly skaters: Container[] = [];
+  private readonly possessionRings: Graphics[] = [];
   private puck!: Graphics;
   private scoreText!: Text;
 
@@ -101,6 +104,15 @@ export class Renderer {
   /** A chunky NES-style skater, drawn facing +x; rotated to its facing each frame. */
   private makeSkater(jersey: number): Container {
     const c = new Container();
+
+    // Possession halo (behind the skater), toggled on for whoever has the puck.
+    const ring = new Graphics();
+    ring.circle(0, 0, SK_R + 4).fill({ color: 0xffd23f, alpha: 0.22 });
+    ring.circle(0, 0, SK_R + 4).stroke({ width: 2, color: 0xffd23f });
+    ring.visible = false;
+    c.addChild(ring);
+    this.possessionRings.push(ring);
+
     const g = new Graphics();
     // Skates / shadow.
     g.rect(-SK_R, SK_R - 3, SK_R * 2, 3).fill(0x222222);
@@ -122,6 +134,7 @@ export class Renderer {
       const sprite = this.skaters[i]!;
       sprite.position.set(lerp(p.x, c.x, alpha), lerp(p.y, c.y, alpha));
       if (c.fx !== 0 || c.fy !== 0) sprite.rotation = Math.atan2(c.fy, c.fx);
+      this.possessionRings[i]!.visible = curr.possessor === i;
     }
     this.puck.position.set(lerp(prev.puck.x, curr.puck.x, alpha), lerp(prev.puck.y, curr.puck.y, alpha));
 

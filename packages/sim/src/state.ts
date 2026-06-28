@@ -26,11 +26,9 @@ export interface Body {
 }
 
 export interface Skater extends Body {
-  /** Facing unit vector (Q16.16), used to aim shots. */
+  /** Facing unit vector (Q16.16), used to aim shots and carry the puck. */
   fx: Fixed;
   fy: Fixed;
-  /** Ticks remaining until this skater can shoot again. */
-  cooldown: number;
 }
 
 export interface GameState {
@@ -41,6 +39,10 @@ export interface GameState {
   score: [number, number];
   /** >0 while the rink is frozen for a faceoff after a goal. */
   faceoff: number;
+  /** Which skater currently carries the puck: -1 (loose), 0, or 1. */
+  possessor: number;
+  /** Frames a loose puck stays un-pickup-able (after a shot or a check). */
+  puckFree: number;
 }
 
 /** Reset positions/velocities to the faceoff arrangement. Mutates in place. */
@@ -65,6 +67,9 @@ export function resetPositions(s: GameState): void {
   s.puck.y = RINK_CY;
   s.puck.vx = ZERO;
   s.puck.vy = ZERO;
+
+  s.possessor = -1;
+  s.puckFree = 0;
 }
 
 /** Deterministic initial state for a given seed. */
@@ -73,21 +78,23 @@ export function initialState(seed: number): GameState {
     tick: 0,
     rng: createRng(seed),
     skaters: [
-      { x: ZERO, y: ZERO, vx: ZERO, vy: ZERO, fx: ONE, fy: ZERO, cooldown: 0 },
-      { x: ZERO, y: ZERO, vx: ZERO, vy: ZERO, fx: -ONE as Fixed, fy: ZERO, cooldown: 0 },
+      { x: ZERO, y: ZERO, vx: ZERO, vy: ZERO, fx: ONE, fy: ZERO },
+      { x: ZERO, y: ZERO, vx: ZERO, vy: ZERO, fx: -ONE as Fixed, fy: ZERO },
     ],
     puck: { x: ZERO, y: ZERO, vx: ZERO, vy: ZERO },
     score: [0, 0],
     faceoff: 0,
+    possessor: -1,
+    puckFree: 0,
   };
   resetPositions(s);
   return s;
 }
 
 /** Serialized layout sizes (in int32 words). */
-const SKATER_WORDS = 7; // x,y,vx,vy,fx,fy,cooldown
+const SKATER_WORDS = 6; // x,y,vx,vy,fx,fy
 const BODY_WORDS = 4; // x,y,vx,vy
-const HEADER_WORDS = 5; // tick, rng.s, score0, score1, faceoff
+const HEADER_WORDS = 7; // tick, rng.s, score0, score1, faceoff, possessor, puckFree
 const TOTAL_WORDS = HEADER_WORDS + 2 * SKATER_WORDS + BODY_WORDS;
 
 /** Serialize to a compact Int32Array snapshot (for rollback save/restore). */
@@ -99,6 +106,8 @@ export function serialize(s: GameState): Int32Array {
   out[i++] = s.score[0];
   out[i++] = s.score[1];
   out[i++] = s.faceoff;
+  out[i++] = s.possessor;
+  out[i++] = s.puckFree;
   for (const sk of s.skaters) {
     out[i++] = sk.x;
     out[i++] = sk.y;
@@ -106,7 +115,6 @@ export function serialize(s: GameState): Int32Array {
     out[i++] = sk.vy;
     out[i++] = sk.fx;
     out[i++] = sk.fy;
-    out[i++] = sk.cooldown;
   }
   out[i++] = s.puck.x;
   out[i++] = s.puck.y;
@@ -122,6 +130,8 @@ export function deserialize(buf: Int32Array): GameState {
   const rngS = buf[i++]! >>> 0;
   const score: [number, number] = [buf[i++]!, buf[i++]!];
   const faceoff = buf[i++]!;
+  const possessor = buf[i++]!;
+  const puckFree = buf[i++]!;
   const readSkater = (): Skater => ({
     x: buf[i++]! as Fixed,
     y: buf[i++]! as Fixed,
@@ -129,7 +139,6 @@ export function deserialize(buf: Int32Array): GameState {
     vy: buf[i++]! as Fixed,
     fx: buf[i++]! as Fixed,
     fy: buf[i++]! as Fixed,
-    cooldown: buf[i++]!,
   });
   const skaters: [Skater, Skater] = [readSkater(), readSkater()];
   const puck: Body = {
@@ -138,7 +147,7 @@ export function deserialize(buf: Int32Array): GameState {
     vx: buf[i++]! as Fixed,
     vy: buf[i++]! as Fixed,
   };
-  return { tick, rng: { s: rngS }, skaters, puck, score, faceoff };
+  return { tick, rng: { s: rngS }, skaters, puck, score, faceoff, possessor, puckFree };
 }
 
 /**
