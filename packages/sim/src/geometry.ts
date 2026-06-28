@@ -106,6 +106,9 @@ export const STEAL_RADIUS: Fixed = fromInt(22);
 export const PICKUP_DELAY = 12;
 /** Frames a knocked-loose puck stays live before it can be re-grabbed. */
 export const KNOCK_DELAY = 8;
+/** Pass puck speed and how long it stays live so the passer can't re-grab it. */
+export const PASS_SPEED: Fixed = fromFloat(8.0);
+export const PASS_DELAY = 10;
 
 /** Faceoff freeze duration (ticks) after a goal. */
 export const FACEOFF_TICKS = 60;

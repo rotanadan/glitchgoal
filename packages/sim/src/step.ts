@@ -44,6 +44,8 @@ import {
   STEAL_RADIUS,
   PICKUP_DELAY,
   KNOCK_DELAY,
+  PASS_SPEED,
+  PASS_DELAY,
   FACEOFF_TICKS,
   MAX_SKATER_SPEED,
   MAX_PUCK_SPEED,
@@ -155,6 +157,60 @@ function nearestSlotToPuck(state: GameState, t: 0 | 1): number {
 }
 
 /**
+ * Pick the teammate to pass to: the one best matching the held direction; if no
+ * direction is held (or no teammate lies that way), the nearest teammate.
+ */
+function choosePassTarget(state: GameState, carrierIdx: number, input: PlayerInput): number {
+  const t = teamOf(carrierIdx);
+  const base = t * SKATERS_PER_TEAM;
+  const carrier = state.skaters[carrierIdx]!;
+  const { dx, dy } = inputDir(input);
+  const hasDir = !(dx === ZERO && dy === ZERO);
+
+  let dirBest = -1;
+  let dirScore = ZERO;
+  let nearBest = -1;
+  let nearScore = ZERO;
+  for (let s = 0; s < SKATERS_PER_TEAM; s++) {
+    const gi = base + s;
+    if (gi === carrierIdx) continue;
+    const ox = sub(state.skaters[gi]!.x, carrier.x);
+    const oy = sub(state.skaters[gi]!.y, carrier.y);
+    const d2 = add(mul(ox, ox), mul(oy, oy));
+    if (nearBest < 0 || d2 < nearScore) {
+      nearBest = gi;
+      nearScore = d2;
+    }
+    if (hasDir) {
+      const dot = add(mul(ox, dx), mul(oy, dy));
+      if (dot > ZERO && (dirBest < 0 || dot > dirScore)) {
+        dirBest = gi;
+        dirScore = dot;
+      }
+    }
+  }
+  return dirBest >= 0 ? dirBest : nearBest;
+}
+
+/** Pass the carried puck to a teammate and hand control to the receiver. */
+function passPuck(state: GameState, t: 0 | 1, input: PlayerInput): void {
+  const carrierIdx = state.possessor;
+  const carrier = state.skaters[carrierIdx]!;
+  const target = choosePassTarget(state, carrierIdx, input);
+  if (target < 0) return;
+  const tgt = state.skaters[target]!;
+  const dir = normalize(sub(tgt.x, carrier.x), sub(tgt.y, carrier.y));
+  const puck = state.puck;
+  puck.x = add(carrier.x, mul(dir.nx, POSSESSION_OFFSET));
+  puck.y = add(carrier.y, mul(dir.ny, POSSESSION_OFFSET));
+  puck.vx = mul(dir.nx, PASS_SPEED);
+  puck.vy = mul(dir.ny, PASS_SPEED);
+  state.possessor = -1;
+  state.puckFree = PASS_DELAY;
+  state.controlled[t] = target - t * SKATERS_PER_TEAM; // follow the pass
+}
+
+/**
  * Update one goalie: the controlling team moves it up/down with Up/Down (it does
  * NOT track the puck), clamped to the goal mouth. Then it blocks shots/skaters
  * as an immovable collider.
@@ -197,12 +253,18 @@ export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): Game
     return state;
   }
 
-  // Switch button (edge-triggered): take control of the teammate nearest the puck.
+  // Switch button (edge-triggered): if your team carries the puck, PASS it to the
+  // teammate in the held direction; otherwise switch control to the teammate
+  // nearest the puck.
   for (const t of [0, 1] as const) {
     if (hasButton(inputs[t], Button.Switch)) {
       if (state.switchLatch[t] === 0) {
         state.switchLatch[t] = 1;
-        state.controlled[t] = nearestSlotToPuck(state, t);
+        if (state.possessor >= 0 && teamOf(state.possessor) === t) {
+          passPuck(state, t, inputs[t]);
+        } else {
+          state.controlled[t] = nearestSlotToPuck(state, t);
+        }
       }
     } else {
       state.switchLatch[t] = 0;

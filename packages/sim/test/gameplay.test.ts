@@ -192,6 +192,25 @@ describe('rink physics', () => {
     expect(s.controlled[0]).toBe(1); // now controlling the skater by the puck
   });
 
+  it('the switch button passes the puck to the teammate in the held direction', () => {
+    let s = initialState(12);
+    s.possessor = 0; // team-0 slot 0 carries
+    s.skaters[0].x = fromFloat(300) as Fixed;
+    s.skaters[0].y = RINK_CY;
+    // Teammate to the RIGHT; the others up / left so "Right" picks slot 1.
+    s.skaters[1].x = fromFloat(380) as Fixed;
+    s.skaters[1].y = RINK_CY;
+    s.skaters[2].x = fromFloat(300) as Fixed;
+    s.skaters[2].y = fromFloat(60) as Fixed;
+    s.skaters[3].x = fromFloat(220) as Fixed;
+    s.skaters[3].y = RINK_CY;
+
+    s = step(s, [Button.Switch | Button.Right, NONE]);
+    expect(s.possessor).toBe(-1); // puck released as a pass
+    expect(s.controlled[0]).toBe(1); // control follows to the receiver
+    expect(toFloat(s.puck.vx)).toBeGreaterThan(0); // travelling right, toward slot 1
+  });
+
   it('freezes play during the faceoff window after a goal', () => {
     let s = initialState(3);
     s.faceoff = 30;
