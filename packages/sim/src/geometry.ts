@@ -12,15 +12,30 @@
 
 import { fromFloat, fromInt, type Fixed } from './fixed.js';
 
-/** Play-field dimensions (interior, board to board). NES-ish 4:3 feel. */
-export const RINK_W: Fixed = fromInt(320);
-export const RINK_H: Fixed = fromInt(240);
+/**
+ * Play-field dimensions (interior, board to board). Wider than the viewport,
+ * so the camera scrolls horizontally (NES Ice Hockey style). ~2.27:1, close to
+ * a regulation 200x88 ft sheet.
+ */
+export const RINK_W: Fixed = fromInt(680);
+export const RINK_H: Fixed = fromInt(300);
 
-/** Vertical center of the rink (where each goal mouth is centered). */
-export const RINK_CY: Fixed = fromInt(120);
+/** Vertical center of the rink (goal mouths centered here). */
+export const RINK_CY: Fixed = fromInt(150);
 
-/** Half-height of the goal mouth opening in the end boards. */
-export const GOAL_HALF_H: Fixed = fromInt(34);
+/** Half-height of the goal mouth opening (between the posts). */
+export const GOAL_HALF_H: Fixed = fromInt(16);
+
+/**
+ * Goal nets are real objects set IN from the end boards. The goal line is at the
+ * front of the net (where the posts stand); the cage extends NET_DEPTH behind it
+ * toward the board. A goal counts when the puck crosses the goal line between the
+ * posts.
+ */
+export const GOAL_LINE_LEFT: Fixed = fromInt(52);
+export const GOAL_LINE_RIGHT: Fixed = fromInt(628); // RINK_W - 52
+export const NET_DEPTH: Fixed = fromInt(22);
+export const POST_R: Fixed = fromInt(3);
 
 /** Entity radii. */
 export const PUCK_R: Fixed = fromInt(4);
@@ -34,6 +49,8 @@ export const SKATER_INV_MASS: Fixed = fromFloat(0.2);
 export const WALL_RESTITUTION: Fixed = fromFloat(0.7);
 export const PUCK_SKATER_RESTITUTION: Fixed = fromFloat(0.4);
 export const SKATER_SKATER_RESTITUTION: Fixed = fromFloat(0.3);
+/** Goal posts ring the puck off harder. */
+export const POST_RESTITUTION: Fixed = fromFloat(0.85);
 
 /** Skater acceleration per tick while a direction is held. */
 export const SKATER_ACCEL: Fixed = fromFloat(0.6);
@@ -74,7 +91,7 @@ export const FACEOFF_TICKS = 60;
 /** Goals needed to win a match. */
 export const WIN_GOALS = 5;
 
-/** Faceoff spawn positions. */
-export const SKATER0_SPAWN_X: Fixed = fromInt(110);
-export const SKATER1_SPAWN_X: Fixed = fromInt(210);
-export const PUCK_SPAWN_X: Fixed = fromInt(160);
+/** Faceoff spawn positions (center ice). */
+export const SKATER0_SPAWN_X: Fixed = fromInt(270);
+export const SKATER1_SPAWN_X: Fixed = fromInt(410);
+export const PUCK_SPAWN_X: Fixed = fromInt(340);

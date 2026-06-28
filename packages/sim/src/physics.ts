@@ -1,10 +1,10 @@
 /**
  * Deterministic collision primitives, all in fixed-point.
  *
- * Two contact types: circle-vs-circle (skater/skater, skater/puck) resolved with
- * an impulse + positional correction, and circle-vs-board (axis-aligned walls)
- * resolved by clamping position and reflecting velocity. The end boards have a
- * goal mouth gap that the puck (but not skaters) can pass through.
+ * Contact types: circle-vs-circle (skater/skater, skater/puck) with impulse +
+ * positional correction, circle-vs-board (axis-aligned walls), and circle-vs
+ * static-post (the goal pipes). The rink is fully enclosed now; a goal is the
+ * puck crossing an interior goal line between the posts.
  */
 
 import {
@@ -24,6 +24,10 @@ import {
   RINK_H,
   RINK_CY,
   GOAL_HALF_H,
+  GOAL_LINE_LEFT,
+  GOAL_LINE_RIGHT,
+  POST_R,
+  POST_RESTITUTION,
   WALL_RESTITUTION,
 } from './geometry.js';
 
@@ -116,31 +120,53 @@ function inGoalMouth(y: Fixed): boolean {
   return y > sub(RINK_CY, GOAL_HALF_H) && y < add(RINK_CY, GOAL_HALF_H);
 }
 
-/**
- * Bounce the puck off boards. Top/bottom always bounce; left/right bounce
- * EXCEPT within the goal mouth, where the puck is allowed to pass through so
- * goal detection can fire.
- */
+/** Bounce the puck off all four boards (the rink is fully enclosed). */
 export function bouncePuckOffBoards(b: Body, radius: Fixed): void {
-  const minY = radius;
-  const maxY = sub(RINK_H, radius);
-  if (b.y < minY) {
-    b.y = minY;
-    if (b.vy < ZERO) b.vy = mul(neg(b.vy), WALL_RESTITUTION);
-  } else if (b.y > maxY) {
-    b.y = maxY;
-    if (b.vy > ZERO) b.vy = neg(mul(b.vy, WALL_RESTITUTION));
-  }
+  clampSkaterToRink(b, radius);
+}
 
-  const minX = radius;
-  const maxX = sub(RINK_W, radius);
-  if (b.x < minX && !inGoalMouth(b.y)) {
-    b.x = minX;
-    if (b.vx < ZERO) b.vx = mul(neg(b.vx), WALL_RESTITUTION);
-  } else if (b.x > maxX && !inGoalMouth(b.y)) {
-    b.x = maxX;
-    if (b.vx > ZERO) b.vx = neg(mul(b.vx, WALL_RESTITUTION));
+/**
+ * Resolve a circle against a single immovable post (only the body moves).
+ */
+function resolveCircleStatic(b: Body, radius: Fixed, px: Fixed, py: Fixed, postR: Fixed, restitution: Fixed): void {
+  const dx = sub(b.x, px);
+  const dy = sub(b.y, py);
+  const distSq = add(mul(dx, dx), mul(dy, dy));
+  const minDist = add(radius, postR);
+  if (distSq >= mul(minDist, minDist)) return;
+
+  let dist = sqrt(distSq);
+  let nx: Fixed;
+  let ny: Fixed;
+  if (dist === ZERO) {
+    nx = ONE;
+    ny = ZERO;
+    dist = ONE;
+  } else {
+    nx = div(dx, dist);
+    ny = div(dy, dist);
   }
+  // Push the body out of the post.
+  const pen = sub(minDist, dist);
+  b.x = add(b.x, mul(nx, pen));
+  b.y = add(b.y, mul(ny, pen));
+  // Reflect velocity if moving into the post.
+  const vn = add(mul(b.vx, nx), mul(b.vy, ny));
+  if (vn < ZERO) {
+    const j = mul(add(ONE, restitution), vn);
+    b.vx = sub(b.vx, mul(nx, j));
+    b.vy = sub(b.vy, mul(ny, j));
+  }
+}
+
+/** Resolve a body against all four goal posts. */
+export function resolvePosts(b: Body, radius: Fixed): void {
+  const topY = sub(RINK_CY, GOAL_HALF_H);
+  const botY = add(RINK_CY, GOAL_HALF_H);
+  resolveCircleStatic(b, radius, GOAL_LINE_LEFT, topY, POST_R, POST_RESTITUTION);
+  resolveCircleStatic(b, radius, GOAL_LINE_LEFT, botY, POST_R, POST_RESTITUTION);
+  resolveCircleStatic(b, radius, GOAL_LINE_RIGHT, topY, POST_R, POST_RESTITUTION);
+  resolveCircleStatic(b, radius, GOAL_LINE_RIGHT, botY, POST_R, POST_RESTITUTION);
 }
 
 /**
@@ -158,13 +184,12 @@ export function clampSpeed(b: Body, max: Fixed): void {
 }
 
 /**
- * Returns the index of the player who scored, or -1. The puck fully crossing
- * the LEFT goal line is a goal for player 1; crossing the RIGHT line is a goal
- * for player 0.
+ * Returns the index of the player who scored, or -1. The puck crossing the LEFT
+ * goal line (between the posts) is a goal for player 1; the RIGHT line, player 0.
  */
 export function detectGoal(puck: Body): number {
   if (!inGoalMouth(puck.y)) return -1;
-  if (puck.x < ZERO) return 1;
-  if (puck.x > RINK_W) return 0;
+  if (puck.x < GOAL_LINE_LEFT) return 1;
+  if (puck.x > GOAL_LINE_RIGHT) return 0;
   return -1;
 }

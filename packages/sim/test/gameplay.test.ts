@@ -9,6 +9,7 @@ import {
   RINK_H,
   SKATER_R,
   RINK_CY,
+  GOAL_LINE_RIGHT,
   type Fixed,
   type PlayerInput,
 } from '../src/index.js';
@@ -33,12 +34,12 @@ describe('rink physics', () => {
     // Player 0 carries the puck near the right goal, facing right.
     s.possessor = 0;
     s.puckFree = 0;
-    s.skaters[0].x = (RINK_W - fromFloat(30)) as Fixed;
+    s.skaters[0].x = (GOAL_LINE_RIGHT - fromFloat(30)) as Fixed;
     s.skaters[0].y = RINK_CY;
     s.skaters[0].fx = fromFloat(1) as Fixed;
     s.skaters[0].fy = 0 as Fixed;
     // Keep the defender far away so it's not a check.
-    s.skaters[1].x = fromFloat(60) as Fixed;
+    s.skaters[1].x = fromFloat(200) as Fixed;
     s.skaters[1].y = RINK_CY;
 
     const shoot: [PlayerInput, PlayerInput] = [Button.Action, NONE];

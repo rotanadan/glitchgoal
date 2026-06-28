@@ -19,6 +19,7 @@ import {
   resolveCircleCircle,
   clampSkaterToRink,
   bouncePuckOffBoards,
+  resolvePosts,
   clampSpeed,
   detectGoal,
 } from './physics.js';
@@ -168,10 +169,16 @@ export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): Game
   // Skater-skater collision (always).
   resolveCircleCircle(sk0, sk1, SKATER_R, SKATER_R, SKATER_INV_MASS, SKATER_INV_MASS, SKATER_SKATER_RESTITUTION);
 
-  // Boards (skaters always; the puck only when loose — carried it tracks the skater).
+  // Boards + goal posts (skaters always; the puck only when loose — carried it
+  // tracks the skater).
   clampSkaterToRink(sk0, SKATER_R);
   clampSkaterToRink(sk1, SKATER_R);
-  if (state.possessor < 0) bouncePuckOffBoards(puck, PUCK_R);
+  resolvePosts(sk0, SKATER_R);
+  resolvePosts(sk1, SKATER_R);
+  if (state.possessor < 0) {
+    bouncePuckOffBoards(puck, PUCK_R);
+    resolvePosts(puck, PUCK_R);
+  }
 
   // Cap speeds so collision resolution can't inject runaway energy.
   clampSpeed(sk0, MAX_SKATER_SPEED);
