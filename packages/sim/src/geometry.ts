@@ -23,8 +23,12 @@ export const RINK_H: Fixed = fromInt(300);
 /** Vertical center of the rink (goal mouths centered here). */
 export const RINK_CY: Fixed = fromInt(150);
 
-/** Half-height of the goal mouth opening (between the posts). */
-export const GOAL_HALF_H: Fixed = fromInt(16);
+/**
+ * Half-height of the goal mouth (between the posts). Wide enough (NES Ice Hockey
+ * style) that the goalie can't cover the whole net — it must pick a side, so a
+ * quick shot to the open corner beats it.
+ */
+export const GOAL_HALF_H: Fixed = fromInt(24);
 
 /**
  * Goal nets are real objects set IN from the end boards. The goal line is at the
