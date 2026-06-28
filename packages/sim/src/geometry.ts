@@ -84,6 +84,13 @@ export const MAX_PUCK_SPEED: Fixed = fromFloat(14.0);
 
 /** Shooting. */
 export const SHOT_SPEED: Fixed = fromFloat(7.0);
+/**
+ * Max lateral aim error (as a fraction of the aim vector) at accuracy 0. The
+ * actual spread is SHOT_SPREAD * (1 - accuracy), randomized via the sim RNG.
+ */
+export const SHOT_SPREAD: Fixed = fromFloat(0.7);
+/** Default per-skater shooting accuracy (0..1); profile-driven later. */
+export const DEFAULT_ACCURACY: Fixed = fromFloat(0.75);
 
 /**
  * Puck possession (arcade hockey: the puck rides on the carrier's stick until

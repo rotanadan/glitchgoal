@@ -11,7 +11,7 @@
  * -> board bounces -> goal check -> faceoff bookkeeping.
  */
 
-import { add, sub, neg, mul, div, sqrt, clamp, type Fixed, ZERO, ONE } from './fixed.js';
+import { add, sub, neg, mul, div, sqrt, clamp, fromInt, type Fixed, ZERO, ONE } from './fixed.js';
 import { hasButton, Button, type PlayerInput } from './input.js';
 import { nextU32 } from './rng.js';
 import { resetPositions, type Body, type Skater, type GameState } from './state.js';
@@ -36,6 +36,9 @@ import {
   SKATER_DAMPING,
   PUCK_DAMPING,
   SHOT_SPEED,
+  SHOT_SPREAD,
+  GOAL_LINE_LEFT,
+  GOAL_LINE_RIGHT,
   POSSESSION_OFFSET,
   PICKUP_RADIUS,
   STEAL_RADIUS,
@@ -106,6 +109,21 @@ function integrate(b: Body, damping: Fixed): void {
   b.y = add(b.y, b.vy);
 }
 
+/**
+ * Direction of a shot at the opponent's net (player 0 -> right, player 1 -> left)
+ * with accuracy-based random spread. The spread is deterministic (sim RNG), so
+ * both peers compute the identical shot.
+ */
+function shotDirection(state: GameState, carrier: Skater, possessor: 0 | 1): { nx: Fixed; ny: Fixed } {
+  const targetX = possessor === 0 ? GOAL_LINE_RIGHT : GOAL_LINE_LEFT;
+  const aim = normalize(sub(targetX, carrier.x), sub(RINK_CY, carrier.y));
+  const maxErr = mul(SHOT_SPREAD, sub(ONE, carrier.accuracy));
+  const r = (nextU32(state.rng) % 2001) - 1000; // -1000..1000
+  const err = mul(div(fromInt(r), fromInt(1000)), maxErr); // [-maxErr, maxErr]
+  // Deflect along the perpendicular (-ny, nx) and renormalize.
+  return normalize(add(aim.nx, mul(neg(aim.ny), err)), add(aim.ny, mul(aim.nx, err)));
+}
+
 /** Move `a` toward `b` by at most `maxStep`. */
 function stepToward(a: Fixed, b: Fixed, maxStep: Fixed): Fixed {
   const d = sub(b, a);
@@ -171,11 +189,12 @@ export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): Game
       state.possessor = -1;
       state.puckFree = KNOCK_DELAY;
     } else if (hasButton(inputs[state.possessor], Button.Action)) {
-      // Shoot in the carrier's facing direction.
-      puck.x = add(carrier.x, mul(carrier.fx, POSSESSION_OFFSET));
-      puck.y = add(carrier.y, mul(carrier.fy, POSSESSION_OFFSET));
-      puck.vx = mul(carrier.fx, SHOT_SPEED);
-      puck.vy = mul(carrier.fy, SHOT_SPEED);
+      // Shoot at the opponent's net, with accuracy-based spread.
+      const dir = shotDirection(state, carrier, state.possessor);
+      puck.x = add(carrier.x, mul(dir.nx, POSSESSION_OFFSET));
+      puck.y = add(carrier.y, mul(dir.ny, POSSESSION_OFFSET));
+      puck.vx = mul(dir.nx, SHOT_SPEED);
+      puck.vy = mul(dir.ny, SHOT_SPEED);
       state.possessor = -1;
       state.puckFree = PICKUP_DELAY;
     } else {

@@ -16,6 +16,7 @@ import {
   SKATER0_SPAWN_X,
   SKATER1_SPAWN_X,
   PUCK_SPAWN_X,
+  DEFAULT_ACCURACY,
 } from './geometry.js';
 
 export interface Body {
@@ -26,9 +27,11 @@ export interface Body {
 }
 
 export interface Skater extends Body {
-  /** Facing unit vector (Q16.16), used to aim shots and carry the puck. */
+  /** Facing unit vector (Q16.16), used to carry the puck and aim the stick. */
   fx: Fixed;
   fy: Fixed;
+  /** Shooting accuracy stat (0..1). Higher = less spread. */
+  accuracy: Fixed;
 }
 
 export interface GameState {
@@ -81,8 +84,8 @@ export function initialState(seed: number): GameState {
     tick: 0,
     rng: createRng(seed),
     skaters: [
-      { x: ZERO, y: ZERO, vx: ZERO, vy: ZERO, fx: ONE, fy: ZERO },
-      { x: ZERO, y: ZERO, vx: ZERO, vy: ZERO, fx: -ONE as Fixed, fy: ZERO },
+      { x: ZERO, y: ZERO, vx: ZERO, vy: ZERO, fx: ONE, fy: ZERO, accuracy: DEFAULT_ACCURACY },
+      { x: ZERO, y: ZERO, vx: ZERO, vy: ZERO, fx: -ONE as Fixed, fy: ZERO, accuracy: DEFAULT_ACCURACY },
     ],
     puck: { x: ZERO, y: ZERO, vx: ZERO, vy: ZERO },
     score: [0, 0],
@@ -96,7 +99,7 @@ export function initialState(seed: number): GameState {
 }
 
 /** Serialized layout sizes (in int32 words). */
-const SKATER_WORDS = 6; // x,y,vx,vy,fx,fy
+const SKATER_WORDS = 7; // x,y,vx,vy,fx,fy,accuracy
 const BODY_WORDS = 4; // x,y,vx,vy
 const HEADER_WORDS = 9; // tick, rng.s, score0/1, faceoff, possessor, puckFree, goalie0/1
 const TOTAL_WORDS = HEADER_WORDS + 2 * SKATER_WORDS + BODY_WORDS;
@@ -121,6 +124,7 @@ export function serialize(s: GameState): Int32Array {
     out[i++] = sk.vy;
     out[i++] = sk.fx;
     out[i++] = sk.fy;
+    out[i++] = sk.accuracy;
   }
   out[i++] = s.puck.x;
   out[i++] = s.puck.y;
@@ -146,6 +150,7 @@ export function deserialize(buf: Int32Array): GameState {
     vy: buf[i++]! as Fixed,
     fx: buf[i++]! as Fixed,
     fy: buf[i++]! as Fixed,
+    accuracy: buf[i++]! as Fixed,
   });
   const skaters: [Skater, Skater] = [readSkater(), readSkater()];
   const puck: Body = {

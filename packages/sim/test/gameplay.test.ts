@@ -32,23 +32,37 @@ describe('rink physics', () => {
     expect(sk.y).toBeLessThanOrEqual(RINK_H);
   });
 
-  it('a shot to the open corner beats the goalie and scores', () => {
+  it('a shot beats an out-of-position goalie and scores', () => {
     let s = initialState(2);
-    // Player 0 carries near the right goal, aimed at the TOP corner...
+    // Player 0 carries near the right goal; auto-aim sends it at the net center.
     s.possessor = 0;
     s.puckFree = 0;
-    s.skaters[0].x = (GOAL_LINE_RIGHT - fromFloat(20)) as Fixed;
-    s.skaters[0].y = (RINK_CY - GOAL_HALF_H + fromFloat(8)) as Fixed;
-    s.skaters[0].fx = fromFloat(1) as Fixed;
-    s.skaters[0].fy = 0 as Fixed;
+    s.skaters[0].x = (GOAL_LINE_RIGHT - fromFloat(24)) as Fixed;
+    s.skaters[0].y = RINK_CY;
+    s.skaters[0].accuracy = fromFloat(1) as Fixed; // perfect aim, no spread
     s.skaters[1].x = fromFloat(200) as Fixed;
-    // ...while the goalie is pinned to the BOTTOM and can't recover in time.
+    // Goalie pinned to the BOTTOM corner, leaving the middle open.
     s.goalies[1] = (RINK_CY + GOAL_HALF_H) as Fixed;
 
     const shoot: [PlayerInput, PlayerInput] = [Button.Action, NONE];
     const before = s.score[0];
     for (let i = 0; i < 30; i++) s = step(s, shoot);
     expect(s.score[0]).toBe(before + 1);
+  });
+
+  it('the shoot button aims at the opponent net regardless of facing', () => {
+    let s = initialState(3);
+    s.possessor = 0; // player 0 attacks the RIGHT net
+    s.skaters[0].x = fromFloat(340) as Fixed;
+    s.skaters[0].y = RINK_CY;
+    s.skaters[0].fx = -fromFloat(1) as Fixed; // facing LEFT, away from the net
+    s.skaters[0].fy = 0 as Fixed;
+    s.skaters[0].accuracy = fromFloat(1) as Fixed;
+    s.skaters[1].x = fromFloat(200) as Fixed;
+
+    s = step(s, [Button.Action, NONE]);
+    expect(s.possessor).toBe(-1); // shot released
+    expect(s.puck.vx).toBeGreaterThan(0); // travels toward the right net, not left
   });
 
   it('carrying the puck into the net does not score — you must shoot it', () => {
@@ -97,8 +111,7 @@ describe('rink physics', () => {
     s.puckFree = 0;
     s.skaters[0].x = (GOAL_LINE_RIGHT - fromFloat(30)) as Fixed;
     s.skaters[0].y = RINK_CY;
-    s.skaters[0].fx = fromFloat(1) as Fixed;
-    s.skaters[0].fy = 0 as Fixed;
+    s.skaters[0].accuracy = fromFloat(1) as Fixed; // dead-center aim
     s.skaters[1].x = fromFloat(200) as Fixed;
     s.goalies[1] = RINK_CY; // centered, in the puck's path
 
