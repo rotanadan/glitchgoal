@@ -35,6 +35,8 @@ export interface ViewState {
   possessor: number;
   /** Team-slot (0-3) each team's human controls. */
   controlled: [number, number];
+  /** Shot-charge fraction (0..1) per team. */
+  charge: [number, number];
   goalies: [{ x: number; y: number }, { x: number; y: number }];
 }
 interface Mover {
@@ -81,6 +83,7 @@ export class Renderer {
   private readonly possessionRings: Graphics[] = [];
   private readonly goalieSprites: Graphics[] = [];
   private readonly controlIndicators: Graphics[] = [];
+  private chargeMeter!: Graphics;
   private puck!: Graphics;
   private scoreText!: Text;
   private cameraX = 0;
@@ -113,6 +116,9 @@ export class Renderer {
     this.controlIndicators.forEach((c) => this.world.addChild(c));
     this.puck = new Graphics().circle(0, 0, PK_R).fill(0x141414);
     this.world.addChild(this.puck);
+    this.chargeMeter = new Graphics();
+    this.chargeMeter.visible = false;
+    this.world.addChild(this.chargeMeter);
 
     // Scoreboard lives on the stage (screen space) so it doesn't scroll away.
     const cx = (VIEW_W * SCALE) / 2;
@@ -268,6 +274,23 @@ export class Renderer {
     this.cameraX = this.cameraReady ? lerp(this.cameraX, target, 0.12) : target;
     this.cameraReady = true;
     this.world.x = -this.cameraX * SCALE;
+
+    // Shot-charge meter under the carrier (fills green -> gold -> red).
+    const carrier = curr.possessor;
+    if (carrier >= 0 && curr.charge[carrier < SKATERS_PER_TEAM ? 0 : 1]! > 0.001) {
+      const frac = curr.charge[carrier < SKATERS_PER_TEAM ? 0 : 1]!;
+      const w = 18;
+      const h = 3;
+      const mx = sx[carrier]! - w / 2;
+      const my = sy[carrier]! + SK_R + 6;
+      this.chargeMeter.clear();
+      this.chargeMeter.rect(mx, my, w, h).fill({ color: 0x10131a, alpha: 0.85 });
+      const c = frac < 0.5 ? 0x4caf50 : frac < 0.85 ? 0xffd23f : 0xe23a3a;
+      this.chargeMeter.rect(mx, my, w * frac, h).fill(c);
+      this.chargeMeter.visible = true;
+    } else {
+      this.chargeMeter.visible = false;
+    }
 
     const text = `${curr.score[0]} : ${curr.score[1]}`;
     if (this.scoreText.text !== text) this.scoreText.text = text;

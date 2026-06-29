@@ -82,8 +82,15 @@ export const PUCK_DAMPING: Fixed = fromFloat(0.985);
 export const MAX_SKATER_SPEED: Fixed = fromFloat(9.0);
 export const MAX_PUCK_SPEED: Fixed = fromFloat(14.0);
 
-/** Shooting. */
+/** Shooting. Holding the shoot button charges power up to SHOT_SPEED_MAX. */
 export const SHOT_SPEED: Fixed = fromFloat(7.0);
+/** Frames a checked-off skater can't re-grab the puck (~0.5s at 60Hz). */
+export const CHECK_PICKUP_COOLDOWN = 30;
+export const SHOT_SPEED_MAX: Fixed = fromFloat(13.0);
+/** Frames to reach full charge (~2s at 60Hz). */
+export const SHOT_MAX_CHARGE = 120;
+/** Extra inaccuracy added at full charge (a powered shot sprays more). */
+export const CHARGE_SPREAD: Fixed = fromFloat(0.6);
 /**
  * Max lateral aim error (as a fraction of the aim vector) at accuracy 0. The
  * actual spread is SHOT_SPREAD * (1 - accuracy), randomized via the sim RNG.

@@ -13,6 +13,7 @@ import {
   GOAL_LINE_RIGHT,
   GOAL_HALF_H,
   NET_DEPTH,
+  SHOT_MAX_CHARGE,
   type Fixed,
   type PlayerInput,
 } from '../src/index.js';
@@ -44,9 +45,9 @@ describe('rink physics', () => {
     // Goalie pinned to the BOTTOM corner, leaving the middle open.
     s.goalies[1] = (RINK_CY + GOAL_HALF_H) as Fixed;
 
-    const shoot: [PlayerInput, PlayerInput] = [Button.Action, NONE];
     const before = s.score[0];
-    for (let i = 0; i < 30; i++) s = step(s, shoot);
+    for (let i = 0; i < 5; i++) s = step(s, [Button.Action, NONE]); // charge
+    for (let i = 0; i < 30; i++) s = step(s, [NONE, NONE]); // release -> shoot, travel
     expect(s.score[0]).toBe(before + 1);
   });
 
@@ -60,9 +61,11 @@ describe('rink physics', () => {
     s.skaters[0].accuracy = fromFloat(1) as Fixed;
     s.skaters[1].x = fromFloat(200) as Fixed;
 
-    s = step(s, [Button.Action, NONE]);
-    expect(s.possessor).toBe(-1); // shot released
-    expect(s.puck.vx).toBeGreaterThan(0); // travels toward the right net, not left
+    s = step(s, [Button.Action, NONE]); // charge (still carrying)
+    expect(s.possessor).toBe(0);
+    s = step(s, [NONE, NONE]); // release -> shoot
+    expect(s.possessor).toBe(-1);
+    expect(toFloat(s.puck.vx)).toBeGreaterThan(0); // travels toward the right net
   });
 
   it('carrying the puck into the net does not score — you must shoot it', () => {
@@ -115,10 +118,25 @@ describe('rink physics', () => {
     s.skaters[1].x = fromFloat(200) as Fixed;
     s.goalies[1] = RINK_CY; // centered, in the puck's path
 
-    const shoot: [PlayerInput, PlayerInput] = [Button.Action, NONE];
     const before = s.score[0];
-    for (let i = 0; i < 30; i++) s = step(s, shoot);
+    for (let i = 0; i < 5; i++) s = step(s, [Button.Action, NONE]); // charge
+    for (let i = 0; i < 30; i++) s = step(s, [NONE, NONE]); // release -> shoot
     expect(s.score[0]).toBe(before); // saved
+  });
+
+  it('a charged shot is faster than a tapped one', () => {
+    const releaseSpeed = (charge: number): number => {
+      let s = initialState(20);
+      s.possessor = 0;
+      s.skaters[0].x = fromFloat(300) as Fixed;
+      s.skaters[0].y = RINK_CY;
+      s.skaters[0].accuracy = fromFloat(1) as Fixed;
+      s.shotCharge[0] = charge;
+      for (let i = 4; i < 8; i++) s.skaters[i].x = fromFloat(40) as Fixed; // opponents away
+      s = step(s, [NONE, NONE]); // not holding -> release the charged shot
+      return Math.hypot(toFloat(s.puck.vx), toFloat(s.puck.vy));
+    };
+    expect(releaseSpeed(SHOT_MAX_CHARGE)).toBeGreaterThan(releaseSpeed(1));
   });
 
   it('picks up a loose puck, carries it on the stick, and a check knocks it loose', () => {
@@ -153,6 +171,35 @@ describe('rink physics', () => {
     s.skaters[4].y = s.skaters[0].y;
     s = step(s, [NONE, NONE]);
     expect(s.possessor).toBe(-1);
+  });
+
+  it('a checked-off skater cannot immediately re-grab the puck', () => {
+    let s = initialState(5);
+    // Team-0 skater 0 carries the puck in a corner; everyone else far away.
+    s.possessor = 0;
+    s.skaters[0].x = fromFloat(100) as Fixed;
+    s.skaters[0].y = fromFloat(60) as Fixed;
+    s.puck.x = fromFloat(100) as Fixed;
+    s.puck.y = fromFloat(60) as Fixed;
+    for (let i = 1; i < 8; i++) s.skaters[i].x = fromFloat(900) as Fixed;
+
+    // An opponent overlaps the carrier -> knocked loose with a cooldown.
+    s.skaters[4].x = s.skaters[0].x;
+    s.skaters[4].y = s.skaters[0].y;
+    s = step(s, [NONE, NONE]);
+    expect(s.possessor).toBe(-1);
+    expect(s.skaters[0].pickupCooldown).toBeGreaterThan(0);
+
+    // Move the checker away so only skater 0 is near the loose puck. It must
+    // NOT pick the puck back up while its cooldown is ticking.
+    s.skaters[4].x = fromFloat(900) as Fixed;
+    for (let i = 0; i < 20; i++) {
+      s = step(s, [NONE, NONE]);
+      expect(s.possessor).toBe(-1);
+    }
+    // Once the cooldown expires it can grab it again.
+    for (let i = 0; i < 30; i++) s = step(s, [NONE, NONE]);
+    expect(s.possessor).toBe(0);
   });
 
   it('stays stable when both skaters squeeze the puck between them', () => {
