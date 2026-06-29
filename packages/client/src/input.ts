@@ -17,7 +17,7 @@ type KeyMap = {
   switch: string;
 };
 
-const PLAYER1: KeyMap = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', action: 'Space', switch: 'KeyE' };
+const PLAYER1: KeyMap = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', action: 'KeyK', switch: 'KeyJ' };
 const PLAYER2: KeyMap = {
   up: 'ArrowUp',
   down: 'ArrowDown',

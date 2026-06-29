@@ -36,6 +36,8 @@ export interface Skater extends Body {
   fy: Fixed;
   /** Shooting accuracy stat (0..1). Higher = less spread. */
   accuracy: Fixed;
+  /** Frames this skater can't pick up the puck (after being checked off it). */
+  pickupCooldown: number;
 }
 
 export interface GameState {
@@ -57,6 +59,8 @@ export interface GameState {
   controlled: [number, number];
   /** Edge-detect latch for the Switch button, per team (0/1). */
   switchLatch: [number, number];
+  /** Frames the shoot button has been held (charge), per team. */
+  shotCharge: [number, number];
 }
 
 /** A skater's team (0 or 1) from its global index. */
@@ -74,6 +78,7 @@ export function resetPositions(s: GameState): void {
     sk.vy = ZERO;
     sk.fx = teamOf(i) === 0 ? ONE : (-ONE as Fixed); // face the attacking direction
     sk.fy = ZERO;
+    sk.pickupCooldown = 0;
   }
   s.puck.x = PUCK_SPAWN_X;
   s.puck.y = RINK_CY;
@@ -83,10 +88,11 @@ export function resetPositions(s: GameState): void {
   s.possessor = -1;
   s.puckFree = 0;
   s.goalies = [RINK_CY, RINK_CY];
+  s.shotCharge = [0, 0];
 }
 
 function newSkater(): Skater {
-  return { x: ZERO, y: ZERO, vx: ZERO, vy: ZERO, fx: ONE, fy: ZERO, accuracy: DEFAULT_ACCURACY };
+  return { x: ZERO, y: ZERO, vx: ZERO, vy: ZERO, fx: ONE, fy: ZERO, accuracy: DEFAULT_ACCURACY, pickupCooldown: 0 };
 }
 
 /** Deterministic initial state for a given seed. */
@@ -105,16 +111,18 @@ export function initialState(seed: number): GameState {
     goalies: [RINK_CY, RINK_CY],
     controlled: [0, 0],
     switchLatch: [0, 0],
+    shotCharge: [0, 0],
   };
   resetPositions(s);
   return s;
 }
 
 /** Serialized layout sizes (in int32 words). */
-const SKATER_WORDS = 7; // x,y,vx,vy,fx,fy,accuracy
+const SKATER_WORDS = 8; // x,y,vx,vy,fx,fy,accuracy,pickupCooldown
 const BODY_WORDS = 4; // x,y,vx,vy
-// tick, rng.s, score0/1, faceoff, possessor, puckFree, goalie0/1, ctrl0/1, latch0/1
-const HEADER_WORDS = 13;
+// tick, rng.s, score0/1, faceoff, possessor, puckFree, goalie0/1, ctrl0/1,
+// latch0/1, charge0/1
+const HEADER_WORDS = 15;
 const TOTAL_WORDS = HEADER_WORDS + SKATER_COUNT * SKATER_WORDS + BODY_WORDS;
 
 /** Serialize to a compact Int32Array snapshot (for rollback save/restore). */
@@ -134,6 +142,8 @@ export function serialize(s: GameState): Int32Array {
   out[i++] = s.controlled[1];
   out[i++] = s.switchLatch[0];
   out[i++] = s.switchLatch[1];
+  out[i++] = s.shotCharge[0];
+  out[i++] = s.shotCharge[1];
   for (const sk of s.skaters) {
     out[i++] = sk.x;
     out[i++] = sk.y;
@@ -142,6 +152,7 @@ export function serialize(s: GameState): Int32Array {
     out[i++] = sk.fx;
     out[i++] = sk.fy;
     out[i++] = sk.accuracy;
+    out[i++] = sk.pickupCooldown;
   }
   out[i++] = s.puck.x;
   out[i++] = s.puck.y;
@@ -162,6 +173,7 @@ export function deserialize(buf: Int32Array): GameState {
   const goalies: [Fixed, Fixed] = [buf[i++]! as Fixed, buf[i++]! as Fixed];
   const controlled: [number, number] = [buf[i++]!, buf[i++]!];
   const switchLatch: [number, number] = [buf[i++]!, buf[i++]!];
+  const shotCharge: [number, number] = [buf[i++]!, buf[i++]!];
   const readSkater = (): Skater => ({
     x: buf[i++]! as Fixed,
     y: buf[i++]! as Fixed,
@@ -170,6 +182,7 @@ export function deserialize(buf: Int32Array): GameState {
     fx: buf[i++]! as Fixed,
     fy: buf[i++]! as Fixed,
     accuracy: buf[i++]! as Fixed,
+    pickupCooldown: buf[i++]!,
   });
   const skaters: Skater[] = [];
   for (let n = 0; n < SKATER_COUNT; n++) skaters.push(readSkater());
@@ -179,7 +192,7 @@ export function deserialize(buf: Int32Array): GameState {
     vx: buf[i++]! as Fixed,
     vy: buf[i++]! as Fixed,
   };
-  return { tick, rng: { s: rngS }, skaters, puck, score, faceoff, possessor, puckFree, goalies, controlled, switchLatch };
+  return { tick, rng: { s: rngS }, skaters, puck, score, faceoff, possessor, puckFree, goalies, controlled, switchLatch, shotCharge };
 }
 
 /**

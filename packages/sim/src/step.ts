@@ -36,7 +36,11 @@ import {
   SKATER_DAMPING,
   PUCK_DAMPING,
   SHOT_SPEED,
+  SHOT_SPEED_MAX,
+  CHECK_PICKUP_COOLDOWN,
   SHOT_SPREAD,
+  SHOT_MAX_CHARGE,
+  CHARGE_SPREAD,
   GOAL_LINE_LEFT,
   GOAL_LINE_RIGHT,
   POSSESSION_OFFSET,
@@ -119,10 +123,10 @@ function integrate(b: Body, damping: Fixed): void {
  * with accuracy-based random spread. The spread is deterministic (sim RNG), so
  * both peers compute the identical shot.
  */
-function shotDirection(state: GameState, carrier: Skater, team: 0 | 1): { nx: Fixed; ny: Fixed } {
+function shotDirection(state: GameState, carrier: Skater, team: 0 | 1, extraSpread: Fixed): { nx: Fixed; ny: Fixed } {
   const targetX = team === 0 ? GOAL_LINE_RIGHT : GOAL_LINE_LEFT;
   const aim = normalize(sub(targetX, carrier.x), sub(RINK_CY, carrier.y));
-  const maxErr = mul(SHOT_SPREAD, sub(ONE, carrier.accuracy));
+  const maxErr = mul(SHOT_SPREAD, add(sub(ONE, carrier.accuracy), extraSpread));
   const r = (nextU32(state.rng) % 2001) - 1000; // -1000..1000
   const err = mul(div(fromInt(r), fromInt(1000)), maxErr); // [-maxErr, maxErr]
   // Deflect along the perpendicular (-ny, nx) and renormalize.
@@ -207,6 +211,7 @@ function passPuck(state: GameState, t: 0 | 1, input: PlayerInput): void {
   puck.vy = mul(dir.ny, PASS_SPEED);
   state.possessor = -1;
   state.puckFree = PASS_DELAY;
+  state.shotCharge[t] = 0; // passing cancels any charge
   state.controlled[t] = target - t * SKATERS_PER_TEAM; // follow the pass
 }
 
@@ -272,17 +277,24 @@ export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): Game
   }
 
   // Human input drives each team's controlled skater; AI drives the rest.
+  // While a team is charging a shot (carries the puck and holds Action), its
+  // carrier can't accelerate — it just drifts to a stop, as if no d-pad.
   const ctrl0 = controlledIndex(state, 0);
   const ctrl1 = controlledIndex(state, 1);
-  applyInput(skaters[ctrl0]!, inputs[0]);
-  applyInput(skaters[ctrl1]!, inputs[1]);
+  const carrierTeam = state.possessor >= 0 ? teamOf(state.possessor) : -1;
+  const charging = (t: 0 | 1) => carrierTeam === t && hasButton(inputs[t], Button.Action);
+  if (!charging(0)) applyInput(skaters[ctrl0]!, inputs[0]);
+  if (!charging(1)) applyInput(skaters[ctrl1]!, inputs[1]);
   for (let i = 0; i < n; i++) {
     if (i === ctrl0 || i === ctrl1) continue;
     moveToward(skaters[i]!, puck.x, LANE_Y[i]!);
   }
 
-  // Integrate skaters.
-  for (let i = 0; i < n; i++) integrate(skaters[i]!, SKATER_DAMPING);
+  // Integrate skaters; tick down any post-check pickup cooldowns.
+  for (let i = 0; i < n; i++) {
+    integrate(skaters[i]!, SKATER_DAMPING);
+    if (skaters[i]!.pickupCooldown > 0) skaters[i]!.pickupCooldown--;
+  }
 
   // Puck possession.
   if (state.possessor >= 0) {
@@ -308,14 +320,24 @@ export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): Game
       puck.vy = carrier.vy;
       state.possessor = -1;
       state.puckFree = KNOCK_DELAY;
+      state.shotCharge[carrierTeam] = 0;
+      carrier.pickupCooldown = CHECK_PICKUP_COOLDOWN; // can't immediately re-grab
     } else if (hasButton(inputs[carrierTeam], Button.Action)) {
-      const dir = shotDirection(state, carrier, carrierTeam);
+      // Hold to charge; keep carrying meanwhile.
+      if (state.shotCharge[carrierTeam] < SHOT_MAX_CHARGE) state.shotCharge[carrierTeam]++;
+      carryPuck(carrier, puck);
+    } else if (state.shotCharge[carrierTeam] > 0) {
+      // Released: shoot with the charged power (faster + less accurate).
+      const f = div(fromInt(state.shotCharge[carrierTeam]), fromInt(SHOT_MAX_CHARGE));
+      const speed = add(SHOT_SPEED, mul(f, sub(SHOT_SPEED_MAX, SHOT_SPEED)));
+      const dir = shotDirection(state, carrier, carrierTeam, mul(f, CHARGE_SPREAD));
       puck.x = add(carrier.x, mul(dir.nx, POSSESSION_OFFSET));
       puck.y = add(carrier.y, mul(dir.ny, POSSESSION_OFFSET));
-      puck.vx = mul(dir.nx, SHOT_SPEED);
-      puck.vy = mul(dir.ny, SHOT_SPEED);
+      puck.vx = mul(dir.nx, speed);
+      puck.vy = mul(dir.ny, speed);
       state.possessor = -1;
       state.puckFree = PICKUP_DELAY;
+      state.shotCharge[carrierTeam] = 0;
     } else {
       carryPuck(carrier, puck);
     }
@@ -331,6 +353,7 @@ export function step(state: GameState, inputs: [PlayerInput, PlayerInput]): Game
       let best = -1;
       let bestD = ZERO;
       for (let i = 0; i < n; i++) {
+        if (skaters[i]!.pickupCooldown > 0) continue;
         const d = distSq(skaters[i]!, puck);
         if (d <= r2 && (best < 0 || d < bestD)) {
           best = i;
